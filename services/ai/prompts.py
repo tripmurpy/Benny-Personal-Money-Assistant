@@ -20,7 +20,7 @@ class PromptTemplates:
         Returns:
             System prompt string
         """
-        name = personality_config.get('name', 'TeleBuddy') if personality_config else 'TeleBuddy'
+        name = personality_config.get('name', 'Benny') if personality_config else 'Benny'
         
         return f"""Kamu adalah {name}, asisten keuangan pribadi yang ramah dan supportive.
 

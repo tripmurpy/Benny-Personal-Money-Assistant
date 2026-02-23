@@ -24,13 +24,13 @@ class PersonalityEngine:
             config_path: Path to personality config JSON file
         """
         self.config = self._load_config(config_path)
-        self.name = self.config.get('name', 'TeleBuddy')
+        self.name = self.config.get('name', 'Benny')
         self.personality_type = self.config.get('personality_type', 'supportive_friend')
         
     def _load_config(self, config_path: Optional[str]) -> Dict:
         """Load personality configuration."""
         default_config = {
-            "name": "TeleBuddy",
+            "name": "Benny",
             "personality_type": "supportive_friend",
             "tone": "friendly_casual",
             "language": "id",

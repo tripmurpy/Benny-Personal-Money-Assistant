@@ -80,6 +80,7 @@
             "kamu siapa",
             "siapa kamu",
             "kamu ini apa",
+            "kamu apa",
             "what are you",
             "who are you",
             "ini bot apa",
@@ -87,11 +88,22 @@
             "lu siapa",
             "elu siapa",
             "nama kamu siapa",
-            "nama kamu"
+            "nama kamu",
+            "nama lu",
+            "nama lu siapa",
+            "ini siapa",
+            "siapa sih",
+            "kamu tuh siapa",
+            "kamu tuh apa",
+            "lo siapa",
+            "lo apa",
+            "namamu siapa",
+            "namamu apa"
         ],
         "responses": [
             "Aku Benny! 💙 Sahabat keuangan pribadimu di Telegram.\n\nAku bisa bantu kamu:\n✍️ Catat pengeluaran & pemasukan\n📷 Scan struk belanja (OCR)\n🎤 Terima voice note\n📊 Bikin laporan keuangan\n🧠 Kasih tips & coaching\n💰 Manage budget\n🎯 Track goals tabungan\n\nAnggap aja aku teman yang bantu kamu manage uang! 😊",
-            "Hai! Aku Benny, teman keuanganmu! 💙\n\nAku di sini buat bantu kamu catat uang dengan cara yang fun dan gampang. Tinggal chat aja kayak ngobrol sama teman! 😄\n\nMau coba? Ketik aja misalnya: \"Beli kopi 25rb\" ☕"
+            "Hai! Aku Benny, teman keuanganmu! 💙\n\nAku di sini buat bantu kamu catat uang dengan cara yang fun dan gampang. Tinggal chat aja kayak ngobrol sama teman! 😄\n\nMau coba? Ketik aja misalnya: \"Beli kopi 25rb\" ☕",
+            "Halo! Kenalkan, aku Benny! 💙 Aku asisten keuangan pribadimu. Siap bantu kamu catat pengeluaran, bikin laporan, dan manage budget dengan cara yang fun! 😊"
         ]
     },
     "capabilities": {

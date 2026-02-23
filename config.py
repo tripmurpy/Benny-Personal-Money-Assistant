@@ -63,7 +63,7 @@ class Config:
             with open(config_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         return {
-            "name": "TeleBuddy",
+            "name": "Benny",
             "personality_type": "supportive_friend",
             "tone": "friendly_casual"
         }
@@ -102,7 +102,7 @@ class Config:
 
 # Legacy support - will be deprecated
 BOT_PERSONA = """
-Kamu adalah asisten keuangan pribadi bernama 'TeleBuddy'.
+Kamu adalah asisten keuangan pribadi bernama 'Benny'.
 Gunakan personality dari config/ai_personality.json.
 """
 
