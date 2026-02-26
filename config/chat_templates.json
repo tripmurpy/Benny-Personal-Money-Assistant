@@ -1,0 +1,253 @@
+{
+    "greetings": {
+        "patterns": [
+            "hi",
+            "halo",
+            "hello",
+            "hey",
+            "hai",
+            "p",
+            "hei",
+            "yo",
+            "woi",
+            "oi"
+        ],
+        "responses": [
+            "Halo! 👋 Apa kabar hari ini? Ada yang mau dicatat? 😊",
+            "Hey! Senang ketemu kamu lagi! 💙 Gimana hari ini?",
+            "Halo! Aku Benny, siap bantu kamu! Ada apa nih? 😄",
+            "Hi there! 👋 Yuk, cerita dong hari ini gimana! 💙",
+            "Halooo! Kangen nih sama kamu! 😆 Ada yang bisa aku bantu?"
+        ]
+    },
+    "morning": {
+        "patterns": [
+            "pagi",
+            "good morning",
+            "morning",
+            "selamat pagi",
+            "pagiii"
+        ],
+        "responses": [
+            "Pagi! ☀️ Semangat jalani hari ini ya! Kamu pasti bisa! 💪",
+            "Selamat pagi! 🌅 Udah sarapan belum? Jangan lupa catat kalau jajan ya! 😄",
+            "Good morning! ☀️ Hari baru, semangat baru! Siap manage keuangan hari ini? 💰",
+            "Pagi pagi pagi! 🌞 Semoga hari ini penuh berkah dan hemat ya! 😊",
+            "Morning! ☀️ Yuk mulai hari dengan semangat! Aku siap bantu kapan aja! 💙"
+        ]
+    },
+    "afternoon": {
+        "patterns": [
+            "siang",
+            "good afternoon",
+            "selamat siang",
+            "sianggg"
+        ],
+        "responses": [
+            "Siang! ☀️ Udah makan siang belum? Jangan skip ya! 🍽️",
+            "Selamat siang! Semoga hari ini produktif! 💪 Ada yang mau dicatat?",
+            "Halo! Siang-siang gini enaknya istirahat sebentar 😊 Ada apa nih?"
+        ]
+    },
+    "evening": {
+        "patterns": [
+            "sore",
+            "good evening",
+            "selamat sore"
+        ],
+        "responses": [
+            "Sore! 🌅 Gimana hari ini? Banyak pengeluaran ga? 😄",
+            "Selamat sore! Udah waktunya santai nih 😊 Mau review keuangan hari ini?",
+            "Sore! 🧡 Semoga hari ini menyenangkan! Ada yang mau dicatat?"
+        ]
+    },
+    "night": {
+        "patterns": [
+            "malam",
+            "good night",
+            "selamat malam",
+            "malem",
+            "nite"
+        ],
+        "responses": [
+            "Malam! 🌙 Sebelum tidur, udah catat semua pengeluaran hari ini belum? 😊",
+            "Selamat malam! 🌟 Istirahat yang cukup ya! Besok semangat lagi! 💙",
+            "Malam! 🌙 Good job udah lewatin hari ini! Kamu hebat! ✨"
+        ]
+    },
+    "about": {
+        "patterns": [
+            "kamu siapa",
+            "siapa kamu",
+            "kamu ini apa",
+            "what are you",
+            "who are you",
+            "ini bot apa",
+            "kamu bot apa",
+            "lu siapa",
+            "elu siapa",
+            "nama kamu siapa",
+            "nama kamu"
+        ],
+        "responses": [
+            "Aku Benny! 💙 Sahabat keuangan pribadimu di Telegram.\n\nAku bisa bantu kamu:\n✍️ Catat pengeluaran & pemasukan\n📷 Scan struk belanja (OCR)\n🎤 Terima voice note\n📊 Bikin laporan keuangan\n🧠 Kasih tips & coaching\n💰 Manage budget\n🎯 Track goals tabungan\n\nAnggap aja aku teman yang bantu kamu manage uang! 😊",
+            "Hai! Aku Benny, teman keuanganmu! 💙\n\nAku di sini buat bantu kamu catat uang dengan cara yang fun dan gampang. Tinggal chat aja kayak ngobrol sama teman! 😄\n\nMau coba? Ketik aja misalnya: \"Beli kopi 25rb\" ☕"
+        ]
+    },
+    "capabilities": {
+        "patterns": [
+            "bisa apa",
+            "fitur",
+            "bantuan",
+            "help",
+            "cara pakai",
+            "menu",
+            "apa aja",
+            "bisa ngapain",
+            "fungsi",
+            "kemampuan"
+        ],
+        "responses": [
+            "Ini yang bisa aku lakuin buat kamu! 🚀\n\n✍️ **Catat Transaksi** — Chat aja: \"Makan 35rb di warteg\"\n📷 **Scan Struk** — Kirim foto struk, aku baca otomatis\n🎤 **Voice Note** — Bilang aja lewat voice\n💵 **Cek Saldo** — Tap tombol Saldo\n📊 **Laporan** — Harian, mingguan, bulanan\n📄 **Export PDF** — Download laporan cantik\n🧠 **Coaching AI** — Tips keuangan personal\n💰 **Budget** — Atur budget per kategori\n🎯 **Goals** — Target tabungan\n📈 **Trend** — Grafik pengeluaran\n\nTinggal pilih menu di bawah atau chat langsung! 👇"
+        ]
+    },
+    "faq_catat": {
+        "patterns": [
+            "cara catat",
+            "gimana catat",
+            "cara masukin",
+            "cara input",
+            "cara tulis",
+            "gimana nambah"
+        ],
+        "responses": [
+            "Gampang banget! 😄 Tinggal chat aja kayak ngobrol:\n\n📝 Contoh:\n• \"Beli kopi 25rb di Starbucks\"\n• \"Makan siang 50 ribu\"\n• \"Bensin 80k\"\n• \"Gaji masuk 5jt\"\n\n📷 Bisa juga kirim foto struk!\n🎤 Atau voice note: \"Parkir lima ribu\"\n\nAku yang urus sisanya! 💪"
+        ]
+    },
+    "faq_budget": {
+        "patterns": [
+            "cara budget",
+            "cara set budget",
+            "gimana budget",
+            "atur budget",
+            "bikin budget"
+        ],
+        "responses": [
+            "Cara set budget gampang! 💰\n\n1️⃣ Ketik: `/setbudget Food 1000000`\n   (Artinya: Budget Food = Rp 1.000.000/bulan)\n\n2️⃣ Cek budget: Tap tombol **💰 Budgets**\n3️⃣ Top up: Ada tombol ➕ Top Up di menu budget\n4️⃣ Hapus: Ada tombol 🗑️ Delete juga\n\nAku akan ingatkan kalau budget udah hampir habis! ⚠️"
+        ]
+    },
+    "faq_laporan": {
+        "patterns": [
+            "cara laporan",
+            "cara report",
+            "gimana laporan",
+            "cara export",
+            "cara pdf"
+        ],
+        "responses": [
+            "Mau lihat laporan? 📊\n\n📊 **Laporan** — Tap tombol Laporan, pilih harian/mingguan/bulanan\n📄 **Export PDF** — Tap tombol Export PDF untuk download\n📈 **Trend** — Tap tombol Trend untuk lihat grafik\n🧠 **Coaching** — Tap Coaching untuk tips AI\n\nAtau chat aja: \"laporan minggu ini\" 😊"
+        ]
+    },
+    "thanks": {
+        "patterns": [
+            "makasih",
+            "makasi",
+            "thank you",
+            "terima kasih",
+            "terimakasih",
+            "thanks",
+            "thx",
+            "tq",
+            "tengkyu",
+            "trims",
+            "oke",
+            "okee",
+            "ok",
+            "sip"
+        ],
+        "responses": [
+            "Sama-sama! 💙 Senang bisa bantu kamu! 😊",
+            "You're welcome! Aku selalu ada buat kamu! 💪✨",
+            "No problem! Kalau butuh apa-apa, tinggal chat aja ya! 💙",
+            "Sama-sama! Keep up the good work managing keuanganmu! 🎯💰",
+            "Tentu! Aku senang banget bisa bantu! 😄💙"
+        ]
+    },
+    "farewell": {
+        "patterns": [
+            "bye",
+            "dadah",
+            "sampai jumpa",
+            "see you",
+            "dah",
+            "pamit",
+            "duluan",
+            "cabut"
+        ],
+        "responses": [
+            "Bye bye! 👋 Sampai ketemu lagi! Jangan lupa catat pengeluaranmu ya! 💙",
+            "Dadah! 😊 Take care! Aku selalu di sini kalau kamu butuh ya! ✨",
+            "See you! 👋 Semoga hari kamu menyenangkan! 💙",
+            "Oke, sampai jumpa! 🌟 Jangan sungkan chat kapan aja ya! 😄"
+        ]
+    },
+    "motivation": {
+        "patterns": [
+            "semangat",
+            "capek",
+            "capek banget",
+            "lelah",
+            "susah",
+            "boros",
+            "bokek",
+            "ga punya uang",
+            "miskin",
+            "duit abis",
+            "uang habis",
+            "stress"
+        ],
+        "responses": [
+            "Hey, aku ngerti kok perasaanmu 💙 Tapi ingat, setiap langkah kecil itu progress! Kamu udah hebat mau track keuangan lho! 💪",
+            "Tenang ya, kamu ga sendirian kok! 💙 Yuk pelan-pelan kita manage bareng. Satu langkah aja udah bagus! ✨",
+            "Jangan terlalu hard on yourself ya! 😊 Financial journey itu marathon, bukan sprint. Kamu pasti bisa! 💪🔥",
+            "Aku percaya sama kamu! 💙 Mau mulai dari mana? Aku bantu step by step ya! 😊",
+            "Hey, it's okay! 💙 Yang penting kamu udah aware dan mau berubah. That's already a huge step! 🌟"
+        ]
+    },
+    "joke": {
+        "patterns": [
+            "lucu",
+            "joke",
+            "lawak",
+            "bercanda",
+            "becanda",
+            "wkwk",
+            "haha",
+            "lol",
+            "🤣",
+            "😂"
+        ],
+        "responses": [
+            "Haha! 😂 Kamu bisa aja! Btw, tau ga kenapa dompet suka nangis? Karena isinya selalu pergi dan jarang pulang! 😆💸",
+            "Wkwk 😂 Aku emang lucu ya? Eh tapi aku serius lho soal bantu keuangan kamu! 💙😄",
+            "Haha! 😆 Ketawa-ketawa boleh, tapi jangan lupa catat pengeluarannya ya! 😜💰"
+        ]
+    },
+    "love": {
+        "patterns": [
+            "sayang",
+            "love",
+            "suka",
+            "cinta",
+            "love you",
+            "i love you",
+            "❤️",
+            "💕"
+        ],
+        "responses": [
+            "Aww, aku juga sayang kamu! 💙 Makanya aku mau bantu kamu jadi lebih baik dalam manage uang! 😊",
+            "Love you too! 💙 Yuk kita jaga keuanganmu bareng! Aku selalu support kamu! ✨",
+            "Aku juga appreciate kamu banget! 💙 Terus semangat ya! 😊💪"
+        ]
+    }
+}

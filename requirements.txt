@@ -1,0 +1,13 @@
+python-telegram-bot[job-queue]
+groq
+gspread
+google-auth
+python-dotenv
+pandas
+requests
+flask
+Pillow
+httpx
+reportlab>=4.0.0
+matplotlib>=3.8.0
+numpy>=1.24.0

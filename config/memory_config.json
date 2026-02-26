@@ -1,0 +1,24 @@
+{
+    "sheets": {
+        "user_profiles": "UserProfiles",
+        "conversation_history": "ChatHistory",
+        "user_context": "UserContext",
+        "knowledge_base": "KnowledgeBase"
+    },
+    "retention": {
+        "conversation_history_days": 90,
+        "context_update_frequency": "daily",
+        "knowledge_confidence_threshold": 0.7
+    },
+    "behavior": {
+        "auto_learn": true,
+        "sentiment_tracking": true,
+        "pattern_detection": true,
+        "personalization_level": "high"
+    },
+    "limits": {
+        "max_conversation_history": 100,
+        "max_knowledge_items_per_user": 50,
+        "context_lookback_days": 30
+    }
+}
