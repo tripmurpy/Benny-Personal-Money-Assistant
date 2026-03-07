@@ -173,14 +173,10 @@ import sys
 
 def main():
     """Main bot entry point."""
-    # Fix AsyncIO Windows Loop Policy
-    if sys.platform == 'win32':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     # Validate config
     try:
         Config.validate()
-        logger.info("✅ Configuration validated")
     except Exception as e:
         logger.error(f"❌ Configuration error: {e}")
         exit(1)
@@ -195,8 +191,7 @@ def main():
     setup_jobs(application)
     
     # Start bot
-    logger.info("🚀 Bot starting...")
-    logger.info("✅ Features: Text, OCR, Voice, Smart Nudging, Goals, Budgets")
+    print("Bot activated")
     application.run_polling()
 
 

@@ -25,7 +25,11 @@ class Config:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
     
-    # Google Sheets
+    # Supabase
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+    
+    # Google Sheets (legacy — kept for gradual migration)
     SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
     GOOGLE_CREDS_PATH = os.path.join(BASE_DIR, "creds.json")
     
@@ -89,10 +93,10 @@ class Config:
             errors.append("TELEGRAM_BOT_TOKEN missing in .env")
         if not cls.GROQ_API_KEY:
             errors.append("GROQ_API_KEY missing in .env")
-        if not cls.SPREADSHEET_ID:
-            errors.append("SPREADSHEET_ID missing in .env")
-        if not os.path.exists(cls.GOOGLE_CREDS_PATH):
-            errors.append(f"creds.json not found at {cls.GOOGLE_CREDS_PATH}")
+        if not cls.SUPABASE_URL:
+            errors.append("SUPABASE_URL missing in .env")
+        if not cls.SUPABASE_KEY:
+            errors.append("SUPABASE_KEY missing in .env")
         
         if errors:
             raise ValueError("Configuration errors:\n- " + "\n- ".join(errors))
@@ -130,7 +134,7 @@ if __name__ == "__main__":
         print("✅ Configuration valid!")
         print(f"📱 Telegram: {Config.TELEGRAM_TOKEN[:10]}...")
         print(f"🤖 Groq Model: {Config.GROQ_MODEL}")
-        print(f"📊 Spreadsheet: {Config.SPREADSHEET_ID}")
+        print(f"🗄️ Supabase: {Config.SUPABASE_URL}")
     except Exception as e:
         print(f"❌ {e}")
         exit(1)
