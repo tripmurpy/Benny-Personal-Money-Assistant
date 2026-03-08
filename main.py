@@ -123,45 +123,33 @@ def setup_jobs(app):
 async def send_weekly_coaching_report(context):
     """Send weekly AI coaching report to user."""
     from services.ai.coaching_engine import get_coaching_engine
-    from services.sheets_service import SheetsService
+    from services.supabase_service import SupabaseService
     from datetime import datetime, timedelta
-    
+
     try:
-        sheets_service = SheetsService()
+        db = SupabaseService()
         coaching_engine = get_coaching_engine()
-        
-        # Get transactions for current and previous week
-        all_data = sheets_service.get_all_transactions()
+        uid = str(Config.ADMIN_ID)
+
         today = datetime.now()
-        current_week_start = today - timedelta(days=7)
-        
-        current_week = []
-        previous_week = []
-        
-        for t in all_data:
-            try:
-                date_str = str(t.get('DATE') or t.get('date') or '')
-                if date_str:
-                    t_date = datetime.strptime(date_str, '%Y-%m-%d')
-                    if t_date >= current_week_start:
-                        current_week.append(t)
-                    elif t_date >= current_week_start - timedelta(days=7):
-                        previous_week.append(t)
-            except ValueError:
-                continue
-        
-        # Generate and send report
-        if current_week:  # Only send if there are transactions
+        week_start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+        prev_week_start = (today - timedelta(days=14)).strftime("%Y-%m-%d")
+        today_str = today.strftime("%Y-%m-%d")
+
+        current_week = db.get_transactions_by_date(uid, week_start, today_str)
+        previous_week = db.get_transactions_by_date(uid, prev_week_start, week_start)
+
+        if current_week:
             report_data = coaching_engine.generate_weekly_report(current_week, previous_week)
             message = coaching_engine.format_weekly_report_message(report_data)
-            
+
             await context.bot.send_message(
                 chat_id=Config.ADMIN_ID,
                 text="📅 *LAPORAN MINGGUAN OTOMATIS*\n\n" + message,
-                parse_mode='Markdown'
+                parse_mode='Markdown',
             )
             logger.info("✅ Weekly coaching report sent")
-            
+
     except Exception as e:
         logger.error(f"Failed to send weekly coaching report: {e}")
 

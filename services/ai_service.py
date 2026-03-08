@@ -84,12 +84,36 @@ Output Schema:
       "date": "YYYY-MM-DD", 
       "time": "HH:MM", 
       "item": "string", 
-      "category": "Food/Transport/Bills/Shopping/Income/Other", 
+      "category": "Food/Drink/Shopping/Gas/Transport/Income/Komunikasi/Study/Other", 
       "amount": integer, 
       "location": "string"
     }}
   ]
 }}
+
+ITEM NAME RULES (CRITICAL):
+- "item" is the PRODUCT/SERVICE name only, NOT the action verb.
+- REMOVE verbs like "beli", "bayar", "isi" from the item name.
+- Capitalize the first letter of each word.
+- Examples:
+  - "beli ayam" → item: "Ayam"
+  - "beli kopi" → item: "Kopi"
+  - "bayar listrik" → item: "Listrik"
+  - "isi bensin" → item: "Bensin"
+  - "beli fore amerikano" → item: "Fore Amerikano"
+  - "makan naspad" → item: "Naspad"
+  - "jajan mochi" → item: "Mochi"
+
+CATEGORY RULES (CRITICAL — use EXACTLY these categories):
+- "Food" → meals, snacks, rice, nasi, mie, ayam, bakso, etc.
+- "Drink" → coffee, tea, juice, kopi, teh, amerikano, latte, boba, es, minuman
+- "Shopping" → clothing, electronics, household items, belanja
+- "Gas" → bensin, pertamax, pertalite, fuel, BBM
+- "Transport" → ojek, grab, gojek, angkot, bus, kereta, taxi, MRT, KRL
+- "Income" → gaji, salary, bonus, THR, hadiah, received money
+- "Komunikasi" → pulsa, kuota, internet, paket data, wifi
+- "Study" → pensil, buku, notebook, alat tulis, fotokopi, print
+- "Other" → anything that doesn't fit above
 
 CRITICAL AMOUNT CONVERSION RULES (Indonesian Currency Context):
 1. "rb" or "ribu" means thousands (×1000):
@@ -115,19 +139,23 @@ CRITICAL AMOUNT CONVERSION RULES (Indonesian Currency Context):
 
 INCOME DETECTION RULES (CRITICAL):
 6. Category = 'Income' when user mentions:
-   - 'dapat' (got/received) -> "Hari ini dapat 100rb" (Item: Dapat uang, Amount: 100000, Category: Income)
+   - 'dapat' (got/received) → "Hari ini dapat 100rb" (Item: Uang, Amount: 100000, Category: Income)
    - 'dapet' 
    - 'terima'
    - 'gaji' / 'salary'
-   - 'masuk' -> "Ada transfer masuk 500rb"
-   - 'dikasih' -> "Dikasih tante 200rb" (Item: Dikasih tante, Amount: 200000, Category: Income)
+   - 'masuk' → "Ada transfer masuk 500rb"
+   - 'dikasih' → "Dikasih tante 200rb" (Item: Dari tante, Amount: 200000, Category: Income)
    - 'bonus', 'THR', 'hadiah'
    
    For income, the amount is often the MAIN focus. E.g., "dapat 100rb" means the User RECEIVED 100000 IDR.
 
 OTHER RULES:
-7. Default missing values to reasonable defaults or empty string.
-8. OUTPUT JSON ONLY. NO MARKDOWN."""
+7. DATE RULES (CRITICAL):
+   - "kemarin" (yesterday) = subtract 1 day from Current Context Date.
+   - "hari ini" (today) = use Current Context Date.
+   - Default to Current Context Date if no date is specified.
+8. Default missing values to reasonable defaults or empty string.
+9. OUTPUT JSON ONLY. NO MARKDOWN."""
 
         try:
             chat_completion = await self.client.chat.completions.create(
@@ -266,7 +294,7 @@ OTHER RULES:
         image.save(buffered, format="JPEG", quality=85)
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-    async def chat_with_user(self, user_text: str, reply_context: str = "") -> str:
+    async def chat_with_user(self, user_text: str, user_id: str = None, reply_context: str = "") -> str:
         """
         [ASYNC] Conversational chat using Groq with warm personality.
         
@@ -275,10 +303,12 @@ OTHER RULES:
         
         Args:
             user_text: User's message
+            user_id: User ID to fetch and save chat history
             reply_context: Optional text from the message user is replying to
         """
         from services.ai.prompts import PromptTemplates
         from config import Config
+        from services.supabase_service import SupabaseService
         
         system_prompt = PromptTemplates.get_system_prompt(
             Config.get_personality_config()
@@ -298,12 +328,27 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
 - JANGAN memberi tutorial kecuali diminta
 - Kalau user balas (reply) pesan sebelumnya, PAHAMI konteks pesan yang dibalas dan jawab relevan"""
 
-        # Build messages
+        # Build messages builder
         messages = [{"role": "system", "content": system_prompt}]
+        
+        # Fetch up to 10 recent messages from Supabase History if user_id is provided
+        if user_id:
+            try:
+                db = SupabaseService()
+                chat_history = db.get_chat_history(user_id, limit=10)
+                for chat in chat_history:
+                    role = chat.get("role")
+                    msg_content = chat.get("message")
+                    if role and msg_content:
+                        # Prevent appending system messages or unexpected roles if any in db
+                        if role in ["user", "assistant"]:
+                            messages.append({"role": role, "content": msg_content})
+            except Exception as e:
+                logger.error(f"Failed to fetch chat history for user {user_id}: {e}")
         
         # If user is replying to a bot message, add it as context
         if reply_context:
-            messages.append({"role": "assistant", "content": reply_context})
+            messages.append({"role": "assistant", "content": f"[Konteks Pesan Dibalas]: {reply_context}"})
         
         messages.append({"role": "user", "content": user_text})
 
@@ -316,7 +361,20 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
             )
             
             response = chat_completion.choices[0].message.content
-            return response.strip() if response else ""
+            final_response = response.strip() if response else ""
+            
+            # Save user interaction and AI response to Supabase History asynchronously
+            if final_response and user_id:
+                try:
+                    # Execute sequentially or fire-and-forget logic if needed
+                    # We run it synchronously (or within async context) to avoid race conditions 
+                    # with multiple rapid messages
+                    db.add_chat(user_id, "user", user_text)
+                    db.add_chat(user_id, "assistant", final_response)
+                except Exception as db_err:
+                    logger.error(f"Failed to save chat to history: {db_err}")
+                    
+            return final_response
             
         except Exception as e:
             logger.error(f"Chat with user failed: {e}")
@@ -365,6 +423,101 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
         report += f"🚨 Terbesar: {top_cat[0]} (Rp {top_cat[1]:,.0f})".replace(',', '.') + "\n"
         
         return report
+
+    async def summarize_expenses(
+        self,
+        transactions: List[Dict],
+        period_label: str,
+        user_query: str,
+    ) -> str:
+        """
+        [ASYNC] Generate a smart AI summary of expenses for a given period.
+
+        Returns a natural, conversational summary with:
+        - Total spending
+        - Breakdown by category
+        - Spending patterns / insights
+        """
+        import json
+
+        # Prepare compact data for prompt
+        total = 0
+        cat_map = {}
+        tx_lines = []
+        for t in transactions:
+            amt = int(t.get('amount', 0))
+            cat = t.get('category', 'Other')
+            item = t.get('item_name', t.get('item', '?'))
+            date = t.get('date', '')
+            time_str = t.get('time', '')
+
+            if str(cat).lower() in ['income', 'pemasukan', 'gaji']:
+                continue
+
+            total += amt
+            cat_map[cat] = cat_map.get(cat, 0) + amt
+            tx_lines.append({"waktu": time_str, "item": item, "jumlah": amt, "kategori": cat})
+
+        if total == 0:
+            return f"📂 Belum ada pengeluaran di periode {period_label} nih! 🎉"
+
+        # Build category breakdown text
+        sorted_cats = sorted(cat_map.items(), key=lambda x: x[1], reverse=True)
+        cat_breakdown = "\n".join(
+            f"- {cat}: Rp {amt:,}".replace(",", ".") for cat, amt in sorted_cats
+        )
+
+        total_str = f"Rp {total:,}".replace(",", ".")
+
+        system_prompt = f"""Kamu adalah Benny, sahabat keuangan user yang santai dan akrab.
+
+User bertanya tentang pengeluaran di periode: {period_label}
+
+DATA PENGELUARAN:
+Total: {total_str}
+Jumlah transaksi: {len(tx_lines)}
+
+Breakdown per kategori:
+{cat_breakdown}
+
+Daftar Transaksi (item dan waktu):
+{json.dumps(tx_lines[-30:], indent=2)}
+
+INSTRUKSI (SANGAT PENTING):
+1. Rangkum pengeluaran dengan ANGKA YANG TEPAT (format Rp X.XXX).
+2. Jika User menanyakan spesifik tentang transaksi, jam, atau waktu tertentu (misal: "jam 12 aku beli apa?"), JAWAB DENGAN TEPAT berdasarkan 'Daftar Transaksi' di atas. JANGAN MENEBAK-NEBAK dan HANYA GUNAKAN DATA TERSEBUT.
+3. Jika ditanya hal umum, Sebutkan kategori terbesar jika user menanyakan ringkasan/laporan umum.
+4. Gaya bahasa: asik, pintar, pakai emoji (2-4), kayak chat chat profesional (jangan terlalu kaku, tapi tidak usah terlalu gaul).
+5. Singkat: 2-5 kalimat max. Jawab langsung ke intinya (to the point)."""
+
+        try:
+            chat_completion = await self.client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query},
+                ],
+                model=Config.GROQ_MODEL,
+                temperature=0.6,
+                max_tokens=350,
+            )
+
+            response = chat_completion.choices[0].message.content
+            return response.strip() if response else self._fallback_summary(
+                total_str, sorted_cats, period_label
+            )
+
+        except Exception as e:
+            logger.error(f"Summarize expenses failed: {e}")
+            return self._fallback_summary(total_str, sorted_cats, period_label)
+
+    def _fallback_summary(self, total_str, sorted_cats, period_label):
+        """Fallback non-AI summary when Groq is unavailable."""
+        msg = f"📊 Pengeluaran {period_label}\n\n"
+        msg += f"💸 Total: {total_str}\n\n"
+        for cat, amt in sorted_cats:
+            amt_str = f"Rp {amt:,}".replace(",", ".")
+            msg += f"▪️ {cat}: {amt_str}\n"
+        return msg
 
     async def generate_smart_recommendation(self, transactions: List[Dict], current_time: str, user_query: str) -> str:
         """

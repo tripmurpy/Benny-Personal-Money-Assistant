@@ -45,11 +45,21 @@ class SupabaseService:
     def add_transactions_bulk(self, user_id: str, transactions: List[Dict]) -> bool:
         """Insert multiple expense transactions in a single batch."""
         try:
+            now = datetime.now()
+            today_str = date.today().isoformat()
+            time_str = now.strftime("%H:%M")
+
+            def get_valid_date(val):
+                return today_str if not val or str(val).lower() == 'null' else str(val)
+
+            def get_valid_time(val):
+                return time_str if not val or str(val).lower() == 'null' else str(val)
+
             rows = [
                 {
                     "user_id": user_id,
-                    "date": tx.get("date", date.today().isoformat()),
-                    "time": tx.get("time", datetime.now().strftime("%H:%M")),
+                    "date": get_valid_date(tx.get("date")),
+                    "time": get_valid_time(tx.get("time")),
                     "item_name": tx.get("item", ""),
                     "category": tx.get("category", "Other"),
                     "amount": int(tx.get("amount", 0)),
@@ -106,11 +116,21 @@ class SupabaseService:
     def add_income(self, user_id: str, transactions: List[Dict]) -> bool:
         """Insert one or more income records."""
         try:
+            now = datetime.now()
+            today_str = date.today().isoformat()
+            time_str = now.strftime("%H:%M")
+
+            def get_valid_date(val):
+                return today_str if not val or str(val).lower() == 'null' else str(val)
+
+            def get_valid_time(val):
+                return time_str if not val or str(val).lower() == 'null' else str(val)
+
             rows = [
                 {
                     "user_id": user_id,
-                    "date": tx.get("date", date.today().isoformat()),
-                    "time": tx.get("time", datetime.now().strftime("%H:%M")),
+                    "date": get_valid_date(tx.get("date")),
+                    "time": get_valid_time(tx.get("time")),
                     "source": tx.get("source", ""),
                     "category": tx.get("category", "Income"),
                     "amount": int(tx.get("amount", 0)),
@@ -213,7 +233,8 @@ class SupabaseService:
                     "category": category,
                     "monthly_limit": limit,
                     "updated_at": datetime.now().isoformat(),
-                }
+                },
+                on_conflict="user_id,category"
             ).execute()
             return True
         except Exception as e:
@@ -256,7 +277,7 @@ class SupabaseService:
         try:
             data["user_id"] = user_id
             data["last_active"] = datetime.now().isoformat()
-            self._client.table("user_profiles").upsert(data).execute()
+            self._client.table("user_profiles").upsert(data, on_conflict="user_id").execute()
             return True
         except Exception as e:
             logger.error(f"❌ Upsert user failed: {e}")
@@ -320,7 +341,8 @@ class SupabaseService:
                     "user_id": user_id,
                     "context_data": context,
                     "updated_at": datetime.now().isoformat(),
-                }
+                },
+                on_conflict="user_id"
             ).execute()
             return True
         except Exception as e:
