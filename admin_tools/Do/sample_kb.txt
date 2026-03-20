@@ -1,0 +1,11 @@
+﻿Aplikasi ini adalah asisten keuangan pribadi bernama Benny. 
+Pengguna dapat mengecek saldo dengan mengetik /saldo, 
+membuat target tabungan dengan /setgoal, dan mengatur batas pengeluaran dengan /setbudget.
+Jika budget melebihi batas, Benny akan memberikan peringatan.
+Untuk laporan bulanan, ketik /laporan.
+
+
+
+
+
+

@@ -5,7 +5,6 @@ Goal Handlers — Telegram command handlers for financial goals.
 from telegram import Update
 from telegram.ext import ContextTypes
 from services.goals_service import GoalsService
-import logging
 
 goals_service = GoalsService()
 

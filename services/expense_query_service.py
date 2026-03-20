@@ -10,7 +10,7 @@ Handles natural language like:
 import re
 import calendar
 from datetime import datetime, timedelta
-from typing import Tuple, Optional
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class ExpenseQueryService:
             r'\d+\s*(?:rb|ribu|jt|juta|k|rupiah)\b|(?:rp|idr)\s*\.?\d+',
             text_lower
         ))
-        
+
         # Check for plain numbers typical of amounts (e.g. 62500, 15000)
         has_plain_amount = False
         plain_numbers = re.findall(r'\b\d{3,9}\b', text_lower.replace('.', ''))
@@ -103,15 +103,15 @@ class ExpenseQueryService:
                     break
             except ValueError:
                 pass
-                
+
         if has_currency_marker or has_plain_amount:
             return None
 
         # Check time reference first (required for ALL expense queries)
         has_time_ref = (
-            any(kw in text_lower for kw in TIME_KEYWORDS)
-            or any(b in text_lower for b in BULAN_MAP)
-            or bool(re.search(r'tanggal\s+\d+', text_lower))
+            any(kw in text_lower for kw in TIME_KEYWORDS) or
+            any(b in text_lower for b in BULAN_MAP) or
+            bool(re.search(r'tanggal\s+\d+', text_lower))
         )
 
         if not has_time_ref:
@@ -123,10 +123,10 @@ class ExpenseQueryService:
         # Detection path 2: question about purchases at a time
         # e.g. "kemarin aku beli apa saja ya?", "hari ini bayar apa?"
         has_purchase_question = (
-            any(v in text_lower for v in PURCHASE_VERBS)
-            and (
-                any(q in text_lower for q in QUESTION_PATTERNS)
-                or '?' in text
+            any(v in text_lower for v in PURCHASE_VERBS) and
+            (
+                any(q in text_lower for q in QUESTION_PATTERNS) or
+                '?' in text
             )
         )
 
@@ -138,11 +138,11 @@ class ExpenseQueryService:
 
         # Try each parser in order of specificity
         result = (
-            self._parse_date_range(text_lower, now)
-            or self._parse_specific_date(text_lower, now)
-            or self._parse_relative_period(text_lower, now)
-            or self._parse_month_year(text_lower, now)
-            or self._parse_month_only(text_lower, now)
+            self._parse_date_range(text_lower, now) or
+            self._parse_specific_date(text_lower, now) or
+            self._parse_relative_period(text_lower, now) or
+            self._parse_month_year(text_lower, now) or
+            self._parse_month_only(text_lower, now)
         )
 
         if result:
@@ -305,6 +305,7 @@ class ExpenseQueryService:
 
 # Singleton
 _instance = None
+
 
 def get_expense_query_service() -> ExpenseQueryService:
     global _instance

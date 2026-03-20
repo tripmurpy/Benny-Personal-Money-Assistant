@@ -4,17 +4,16 @@ Main Bot Entry Point - Clean & Optimized
 
 import logging
 from datetime import datetime
-from telegram import Update
 from telegram.error import BadRequest
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, 
+    ApplicationBuilder, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
 )
 from config import Config, Messages
 from services.telegram_service import TelegramService
 from services.goal_handlers import handle_set_goal, handle_goals, handle_delete_goal
 from services.budget_handlers import (
-    handle_set_budget, handle_budgets, handle_delete_budget, 
+    handle_set_budget, handle_budgets, handle_delete_budget,
     check_budget_warning_job
 )
 
@@ -27,7 +26,7 @@ logging.basicConfig(
 logging.getLogger("services").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-# Force current module to INFO just for startup messages, then we can silence it 
+# Force current module to INFO just for startup messages, then we can silence it
 logger.setLevel(logging.INFO)
 
 
@@ -36,9 +35,9 @@ async def check_inactivity(context):
     tg_service = context.bot_data.get('tg_service')
     if not tg_service:
         return
-    
+
     hours = (datetime.now() - tg_service.last_activity).total_seconds() / 3600
-    
+
     if hours >= Config.INACTIVITY_HOURS:
         try:
             await context.bot.send_message(
@@ -53,11 +52,11 @@ async def check_inactivity(context):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Global error handler - gracefully handle common Telegram API errors."""
     error = context.error
-    
+
     # Silently ignore "Message is not modified" errors (caused by double-tapping buttons)
     if isinstance(error, BadRequest) and "Message is not modified" in str(error):
         return  # Harmless, just ignore
-    
+
     # Log everything else
     logger.error(f"Unhandled exception: {error}", exc_info=context.error)
 
@@ -82,7 +81,7 @@ def setup_handlers(app, tg_service):
         (filters.TEXT | filters.PHOTO | filters.VOICE) & (~filters.COMMAND) & admin_filter,
         tg_service.handle_message
     ))
-    
+
     # Goal handlers
     for cmd, handler in [
         ('setgoal', handle_set_goal),
@@ -90,11 +89,11 @@ def setup_handlers(app, tg_service):
         ('deletegoal', handle_delete_goal)
     ]:
         app.add_handler(CommandHandler(cmd, handler, filters=admin_filter))
-    
+
     # Budget handlers
     for cmd, handler in [
         ('setbudget', handle_set_budget),
-        ('set', handle_set_budget), # Alias for /set budget
+        ('set', handle_set_budget),  # Alias for /set budget
         ('budgets', handle_budgets),
         ('deletebudget', handle_delete_budget)
     ]:
@@ -105,16 +104,16 @@ def setup_jobs(app):
     """Setup scheduled jobs."""
     from datetime import time
     job_queue = app.job_queue
-    
+
     # Check inactivity every 6 hours
     job_queue.run_repeating(check_inactivity, interval=21600, first=60)
-    
+
     # Check budget warnings every 6 hours
     job_queue.run_repeating(check_budget_warning_job, interval=21600, first=300)
-    
+
     # Weekly coaching report - every Sunday at 18:00
     job_queue.run_daily(
-        send_weekly_coaching_report, 
+        send_weekly_coaching_report,
         time=time(18, 0),  # 18:00 local time
         days=(6,)  # Sunday = 6
     )
@@ -154,9 +153,6 @@ async def send_weekly_coaching_report(context):
         logger.error(f"Failed to send weekly coaching report: {e}")
 
 
-import asyncio
-import sys
-
 # ... imports ...
 
 def main():
@@ -168,16 +164,16 @@ def main():
     except Exception as e:
         logger.error(f"❌ Configuration error: {e}")
         exit(1)
-    
+
     # Initialize services
     tg_service = TelegramService()
     application = ApplicationBuilder().token(Config.TELEGRAM_TOKEN).build()
     application.bot_data['tg_service'] = tg_service
-    
+
     # Setup handlers and jobs
     setup_handlers(application, tg_service)
     setup_jobs(application)
-    
+
     # Start bot
     print("Bot activated")
     application.run_polling()

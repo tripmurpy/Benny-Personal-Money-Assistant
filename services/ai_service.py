@@ -3,8 +3,7 @@ import re
 import base64
 import logging
 import io
-import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 # Third-party async libraries
 import httpx
@@ -16,6 +15,7 @@ from config import Config
 
 # Setup production logger
 logger = logging.getLogger(__name__)
+
 
 class AIService:
     def __init__(self):
@@ -34,21 +34,21 @@ class AIService:
         Raises ValueError if JSON cannot be parsed after attempts.
         """
         content = raw_content.strip()
-        
+
         # 1. Strip Markdown Code Blocks
         match = re.search(r"```(?:json)?\s*(.*?)\s*```", content, re.DOTALL)
         if match:
             content = match.group(1).strip()
-        
+
         # 2. Strip comments (JS Style //)
         content = re.sub(r'//.*', '', content)
-        
+
         # 3. Find first { and last }
         start = content.find('{')
         end = content.rfind('}')
         if start != -1 and end != -1:
-            content = content[start:end+1]
-            
+            content = content[start:end + 1]
+
         try:
             return json.loads(content)
         except json.JSONDecodeError as e:
@@ -69,7 +69,7 @@ class AIService:
         """[ASYNC] Membaca Chat Biasa -> JSON using Groq Llama 3"""
         from datetime import datetime
         now = datetime.now()
-        
+
         system_prompt = f"""You are a financial extraction engine for Indonesian rupiah transactions.
 Target: Extract transactions from user text into valid JSON.
 
@@ -167,24 +167,24 @@ OTHER RULES:
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
-            
+
             raw_response = chat_completion.choices[0].message.content
             result = self._clean_json_output(raw_response)
             return result.get("items", [])
-            
+
         except Exception as e:
             logger.error(f"Error parsing expense text: {e}", exc_info=True)
-            return [] # Return empty list gracefully only after logging
+            return []  # Return empty list gracefully only after logging
 
     async def parse_receipt_image(self, image_bytes: bytes) -> List[Dict]:
         """[ASYNC] OCR Struk -> JSON using Groq Vision (Llama 3.2)"""
         try:
             # 1. Optimize Image (Blocking CPU operation, keep it minimal or run in executor if heavy)
             processed_image = self._optimize_image(image_bytes)
-            
+
             # 2. Call Groq Vision
             prompt = "Extract all purchased items, prices, and total date from this receipt. Return JSON format: {items: [{item, category, amount, date}]}. Convert IDR currency (e.g. 50.000 -> 50000)."
-            
+
             logger.debug("🔍 Sending image to Groq Vision...")
             chat_completion = await self.client.chat.completions.create(
                 messages=[
@@ -205,11 +205,11 @@ OTHER RULES:
                 temperature=0.1,
                 max_tokens=1024,
             )
-            
+
             result_text = chat_completion.choices[0].message.content
             result = self._clean_json_output(result_text)
             return result.get("items", [])
-            
+
         except Exception as e:
             logger.error(f"FAILED Groq Vision OCR: {e}")
             # Fallback to HuggingFace Florence-2
@@ -220,12 +220,12 @@ OTHER RULES:
         """Fallback OCR using HuggingFace API (Async)"""
         # Encode implementation again as we need raw base64 for HF
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-        
+
         payload = {
             "inputs": "Extract all items and prices from this receipt image.",
             "parameters": {"image": encoded_image}
         }
-        
+
         try:
             async with httpx.AsyncClient() as http_client:
                 response = await http_client.post(
@@ -234,17 +234,17 @@ OTHER RULES:
                     json=payload,
                     timeout=45.0
                 )
-                
+
                 if response.status_code != 200:
                     logger.error(f"HF Fallback Error: {response.status_code} - {response.text}")
                     return []
-                
+
                 # Florence returns generated text, need to parse carefully or pipe to LLM
                 # For simplicity in this '10x' fix, we return empty or try to parse if structure is known.
                 # Usually Florence needs a second pass to structure data unless prompted perfectly.
                 # We return empty here to avoid garbage data.
-                return [] 
-                
+                return []
+
         except Exception as e:
             logger.error(f"HF Fallback Exception: {e}")
             return []
@@ -253,11 +253,11 @@ OTHER RULES:
         """[ASYNC] Voice -> Text using Groq Whisper (Fastest & Reliable)"""
         import tempfile
         import os
-        
+
         try:
             # Groq Whisper is extremely fast (LPU Inference)
             # We need to save bytes to a temp file first because Groq SDK needs a file-like object with name
-            
+
             # Use .ogg extension as it mimics the original Telegram voice format
             with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_audio:
                 temp_audio.write(audio_bytes)
@@ -269,15 +269,15 @@ OTHER RULES:
                     transcription = await self.client.audio.transcriptions.create(
                         model="whisper-large-v3",
                         file=audio_file,
-                        language="id" # Optimize for Indonesian
+                        language="id"  # Optimize for Indonesian
                     )
-                return transcription.text
-                
+                return str(transcription.text)
+
             finally:
                 # Cleanup temp file
                 if os.path.exists(temp_path):
                     os.unlink(temp_path)
-                    
+
         except Exception as e:
             logger.error(f"❌ Groq Whisper Error: {e}")
             return ""
@@ -287,20 +287,20 @@ OTHER RULES:
         image = Image.open(io.BytesIO(image_bytes))
         if image.mode != 'RGB':
             image = image.convert('RGB')
-        
+
         image.thumbnail((1024, 1024))
-        
+
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG", quality=85)
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-    async def chat_with_user(self, user_text: str, user_id: str = None, reply_context: str = "") -> str:
+    async def chat_with_user(self, user_text: str, user_id: str | None = None, reply_context: str = "") -> str:
         """
         [ASYNC] Conversational chat using Groq with warm personality.
-        
+
         Unlike parse_expense (which extracts JSON), this returns natural
         friendly text responses for casual conversation.
-        
+
         Args:
             user_text: User's message
             user_id: User ID to fetch and save chat history
@@ -309,11 +309,12 @@ OTHER RULES:
         from services.ai.prompts import PromptTemplates
         from config import Config
         from services.supabase_service import SupabaseService
-        
+        from services.rag_service import get_rag_service
+
         system_prompt = PromptTemplates.get_system_prompt(
             Config.get_personality_config()
         )
-        
+
         # Add chat-specific instructions
         system_prompt += """
 
@@ -326,12 +327,19 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
 - Jika user tanya hal di luar keuangan, tetap jawab dengan fun
 - Gunakan emoji secukupnya (1-3 emoji per pesan)
 - JANGAN memberi tutorial kecuali diminta
-- Kalau user balas (reply) pesan sebelumnya, PAHAMI konteks pesan yang dibalas dan jawab relevan"""
+- Kalau user balas (reply) pesan sebelumnya, PAHAMI konteks pesan yang dibalas dan jawab relevan
+- JIKA ada konteks dari Knowledge Base (RAG) yang disediakan, gunakan informasi tersebut untuk menjawab pertanyaan. Jangan sebutkan "Berdasarkan knowledge base..." tapi jawab secara natural seolah kamu memang tahu."""
 
         # Build messages builder
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # Fetch up to 10 recent messages from Supabase History if user_id is provided
+
+        # 1. RAG: Fetch Knowledge Base Context
+        rag_service = get_rag_service()
+        kb_context = rag_service.get_knowledge_base_context(user_text)
+        if kb_context:
+            messages.append({"role": "system", "content": f"REFERENSI PENGETAHUAN (Gunakan jika relevan dengan pertanyaan user):\n{kb_context}"})
+
+        # 2. Fetch up to 10 recent messages from Supabase History if user_id is provided
         if user_id:
             try:
                 db = SupabaseService()
@@ -345,11 +353,11 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
                             messages.append({"role": role, "content": msg_content})
             except Exception as e:
                 logger.error(f"Failed to fetch chat history for user {user_id}: {e}")
-        
+
         # If user is replying to a bot message, add it as context
         if reply_context:
             messages.append({"role": "assistant", "content": f"[Konteks Pesan Dibalas]: {reply_context}"})
-        
+
         messages.append({"role": "user", "content": user_text})
 
         try:
@@ -359,23 +367,23 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
                 temperature=0.7,
                 max_tokens=256,
             )
-            
+
             response = chat_completion.choices[0].message.content
             final_response = response.strip() if response else ""
-            
+
             # Save user interaction and AI response to Supabase History asynchronously
             if final_response and user_id:
                 try:
                     # Execute sequentially or fire-and-forget logic if needed
-                    # We run it synchronously (or within async context) to avoid race conditions 
+                    # We run it synchronously (or within async context) to avoid race conditions
                     # with multiple rapid messages
                     db.add_chat(user_id, "user", user_text)
                     db.add_chat(user_id, "assistant", final_response)
                 except Exception as db_err:
                     logger.error(f"Failed to save chat to history: {db_err}")
-                    
+
             return final_response
-            
+
         except Exception as e:
             logger.error(f"Chat with user failed: {e}")
             return ""
@@ -387,41 +395,41 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
         """
         if not transactions_list:
             return f"Data {period_label} kosong."
-            
+
         # ... (Logika analisis existing sudah cukup efisien untuk list kecil)
         total = 0
         cat_map = {}
-        
+
         for t in transactions_list:
             try:
                 # Robust extraction handling mixed types
                 amt_val = t.get('Amount (IDR)') or t.get('amount') or 0
                 cat_val = t.get('Category') or t.get('category') or 'Other'
-                
+
                 if isinstance(amt_val, str):
                     amt = int(''.join(filter(str.isdigit, amt_val)) or 0)
                 else:
                     amt = int(amt_val)
-                
+
                 if str(cat_val).lower() in ['income', 'pemasukan']:
                     continue
-                    
+
                 total += amt
-                cat_map[cat_val] = cat_map.get(cat_val, 0) + amt
+                cat_map[cat_val] = int(cat_map.get(cat_val, 0)) + amt
             except Exception:
                 continue
-                
+
         if total == 0:
-             return f"Belum ada pengeluaran valid di {period_label}."
-             
+            return f"Belum ada pengeluaran valid di {period_label}."
+
         # Sorting & Formatting
         sorted_cats = sorted(cat_map.items(), key=lambda x: x[1], reverse=True)
         top_cat = sorted_cats[0]
-        
+
         report = f"📊 Analisis {period_label}\n"
         report += f"💸 Total: Rp {total:,.0f}".replace(',', '.') + "\n\n"
         report += f"🚨 Terbesar: {top_cat[0]} (Rp {top_cat[1]:,.0f})".replace(',', '.') + "\n"
-        
+
         return report
 
     async def summarize_expenses(
@@ -448,7 +456,7 @@ INSTRUKSI TAMBAHAN UNTUK CHAT:
             amt = int(t.get('amount', 0))
             cat = t.get('category', 'Other')
             item = t.get('item_name', t.get('item', '?'))
-            date = t.get('date', '')
+            t.get('date', '')
             time_str = t.get('time', '')
 
             if str(cat).lower() in ['income', 'pemasukan', 'gaji']:
@@ -481,7 +489,7 @@ Breakdown per kategori:
 {cat_breakdown}
 
 Daftar Transaksi (item dan waktu):
-{json.dumps(tx_lines[-30:], indent=2)}
+{json.dumps(tx_lines[max(0, len(tx_lines)-30):], indent=2)}
 
 INSTRUKSI (SANGAT PENTING):
 1. Rangkum pengeluaran dengan ANGKA YANG TEPAT (format Rp X.XXX).
@@ -524,26 +532,26 @@ INSTRUKSI (SANGAT PENTING):
         [ASYNC] Generate context and time-aware recommendations based on history.
         """
         from config import Config
-        from services.ai.prompts import PromptTemplates
         import json
-        
+
         # Prepare data for AI
         tx_data = []
-        for t in transactions[-100:]: # Limit to recent 100 for context size
+        recent_tx = transactions[max(0, len(transactions)-100):]
+        for t in recent_tx:  # Limit to recent 100 for context size
             # Clean up the dict to only essential info for the prompt
             item = t.get('item', t.get('Item Name', ''))
             cat = t.get('category', t.get('Category', ''))
             # Filter out income
             if str(cat).lower() in ['income', 'pemasukan', 'gaji']:
                 continue
-                
+
             tx_data.append({
                 "time": t.get('time', ''),
                 "date": t.get('date', t.get('Date', '')),
                 "item": item,
                 "category": cat
             })
-            
+
         system_prompt = f"""Kamu adalah Benny, teman dekat user yang juga bisa kasih saran belanja pintar.
 Kamu bukan robot, tapi sahabat yang kenal kebiasaan belanja si user karena kamu selalu bantu catat pengeluarannya.
 
@@ -570,10 +578,10 @@ CARA KASIH SARAN:
                 temperature=0.7,
                 max_tokens=250,
             )
-            
+
             response = chat_completion.choices[0].message.content
             return response.strip() if response else "Hmm, aku lagi agak blank nih. Gimana kalau jajan yang seger-seger aja? 🍦"
-            
+
         except Exception as e:
             logger.error(f"Failed to generate smart recommendation: {e}")
             return "Waduh, otak analisaku lagi ngadat bentar 🤯. Beli apa yang lagi kamu pengenin aja deh sekarang! 💙"

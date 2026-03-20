@@ -7,7 +7,7 @@ from telegram.ext import ContextTypes
 from services.budget_service import BudgetService
 from services.supabase_service import SupabaseService
 from config import Config
-import goals_config
+from config import goals_config
 import logging
 from datetime import datetime
 

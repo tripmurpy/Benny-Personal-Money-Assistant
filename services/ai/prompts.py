@@ -8,20 +8,20 @@ from typing import Dict, Optional
 
 class PromptTemplates:
     """Collection of prompt templates for LLM interactions."""
-    
+
     @staticmethod
     def get_system_prompt(personality_config: Optional[Dict] = None) -> str:
         """
         Get base system prompt with personality.
-        
+
         Args:
             personality_config: Personality configuration
-            
+
         Returns:
             System prompt string
         """
         name = personality_config.get('name', 'Benny') if personality_config else 'Benny'
-        
+
         return f"""Kamu adalah {name}, asisten keuangan pribadi yang ramah dan supportive.
 
 PERSONALITY:
@@ -52,15 +52,15 @@ TONE:
 - Empathetic: "Aku ngerti kok, emang challenging..."
 
 IMPORTANT: Kamu adalah teman, bukan robot keuangan! 💙"""
-    
+
     @staticmethod
     def format_expense_analysis(data: Dict) -> str:
         """
         Format expense analysis prompt.
-        
+
         Args:
             data: Expense data
-            
+
         Returns:
             Formatted prompt
         """
@@ -80,15 +80,15 @@ Tolong berikan analisis yang:
 4. Supportive, bukan judgmental
 
 Format response dalam bahasa Indonesia casual dan friendly!"""
-    
+
     @staticmethod
     def format_goal_check(goal_data: Dict) -> str:
         """
         Format goal progress check prompt.
-        
+
         Args:
             goal_data: Goal tracking data
-            
+
         Returns:
             Formatted prompt
         """
@@ -106,15 +106,15 @@ Tolong kasih:
 4. Positive reinforcement!
 
 Keep it short, sweet, and encouraging! 💪"""
-    
+
     @staticmethod
     def format_budget_alert(budget_data: Dict) -> str:
         """
         Format budget alert prompt.
-        
+
         Args:
             budget_data: Budget tracking data
-            
+
         Returns:
             Formatted prompt
         """
@@ -131,7 +131,7 @@ Generate gentle reminder yang:
 4. Tetap positive!
 
 Bahasa casual dan friendly ya! 😊"""
-    
+
     @staticmethod
     def format_conversation_context(
         recent_messages: list,
@@ -139,23 +139,23 @@ Bahasa casual dan friendly ya! 😊"""
     ) -> str:
         """
         Format conversation context for LLM.
-        
+
         Args:
             recent_messages: Recent conversation history
             user_context: Additional user context
-            
+
         Returns:
             Formatted context string
         """
         context_parts = ["KONTEKS PERCAKAPAN:"]
-        
+
         if recent_messages:
             context_parts.append("\nPercakapan Terakhir:")
             for msg in recent_messages[-3:]:
                 context_parts.append(f"User: {msg.get('user_message', '')}")
                 context_parts.append(f"Bot: {msg.get('bot_response', '')}")
                 context_parts.append("---")
-        
+
         if user_context:
             context_parts.append("\nKonteks User:")
             if user_context.get('top_categories'):
@@ -164,9 +164,9 @@ Bahasa casual dan friendly ya! 😊"""
                 context_parts.append(f"Goal aktif: {user_context['active_goals']}")
             if user_context.get('sentiment_trend'):
                 context_parts.append(f"Mood terakhir: {user_context['sentiment_trend']}")
-        
+
         return "\n".join(context_parts)
-    
+
     @staticmethod
     def format_general_query(
         user_message: str,
@@ -174,19 +174,19 @@ Bahasa casual dan friendly ya! 😊"""
     ) -> str:
         """
         Format general user query.
-        
+
         Args:
             user_message: User's message
             context: Additional context
-            
+
         Returns:
             Formatted prompt
         """
         prompt = f"User bertanya: {user_message}\n\n"
-        
+
         if context:
             prompt += f"Konteks:\n{context}\n\n"
-        
+
         prompt += """Tolong jawab dengan:
 1. Relevan dengan pertanyaan
 2. Bahasa casual dan friendly
@@ -194,9 +194,9 @@ Bahasa casual dan friendly ya! 😊"""
 4. Supportive tone
 
 Keep it natural seperti teman ngobrol! 😊"""
-        
+
         return prompt
-    
+
     @staticmethod
     def format_financial_advice(
         topic: str,
@@ -204,22 +204,22 @@ Keep it natural seperti teman ngobrol! 😊"""
     ) -> str:
         """
         Format financial advice request.
-        
+
         Args:
             topic: Advice topic
             user_situation: User's current situation
-            
+
         Returns:
             Formatted prompt
         """
         prompt = f"User minta advice tentang: {topic}\n\n"
-        
+
         if user_situation:
             prompt += "Situasi user:\n"
             for key, value in user_situation.items():
                 prompt += f"- {key}: {value}\n"
             prompt += "\n"
-        
+
         prompt += """Berikan advice yang:
 1. Practical dan actionable
 2. Sesuai dengan situasi user
@@ -228,9 +228,9 @@ Keep it natural seperti teman ngobrol! 😊"""
 5. Dalam bahasa Indonesia casual
 
 Jadi teman yang helpful, bukan financial advisor yang kaku! 💡"""
-        
+
         return prompt
-    
+
     @staticmethod
     def format_encouragement_request(
         achievement: str,
@@ -238,19 +238,19 @@ Jadi teman yang helpful, bukan financial advisor yang kaku! 💡"""
     ) -> str:
         """
         Format encouragement message request.
-        
+
         Args:
             achievement: What user achieved
             context: Additional context
-            
+
         Returns:
             Formatted prompt
         """
         prompt = f"User baru saja: {achievement}\n\n"
-        
+
         if context:
             prompt += f"Konteks: {context}\n\n"
-        
+
         prompt += """Generate encouragement yang:
 1. Genuine dan dari hati
 2. Celebrate achievement-nya
@@ -259,9 +259,9 @@ Jadi teman yang helpful, bukan financial advisor yang kaku! 💡"""
 5. Include emoji yang pas!
 
 Make them feel proud! 🎉"""
-        
+
         return prompt
-    
+
     @staticmethod
     def format_error_explanation(
         error_type: str,
@@ -269,11 +269,11 @@ Make them feel proud! 🎉"""
     ) -> str:
         """
         Format error explanation.
-        
+
         Args:
             error_type: Type of error
             user_action: What user was trying to do
-            
+
         Returns:
             Formatted prompt
         """

@@ -7,29 +7,28 @@ Benny feel like a supportive friend rather than a generic bot.
 """
 
 import random
-from typing import List, Optional
 
 
 class PersonalityResponses:
     """
     Benny's personality engine for generating warm, supportive responses.
-    
+
     Benny is designed to be:
     - Supportive: Always encouraging, never judgmental
     - Friendly: Casual, warm, personal tone
     - Motivating: Celebrates wins, encourages during challenges
     - Helpful: Provides actionable insights with care
-    
+
     Example:
         >>> personality = PersonalityResponses()
         >>> response = personality.get_transaction_response(25000, "Food")
         >>> print(response)
         "✅ Tercatat! Makan enak nih? Semoga kenyang! 🍽️"
     """
-    
+
     def __init__(self):
         """Initialize personality responses with various templates."""
-        
+
         # Transaction confirmation responses (cheerful & supportive)
         self.transaction_confirmations = {
             'Food': [
@@ -64,7 +63,7 @@ class PersonalityResponses:
                 "✅ Sip! Aku catat ya! ✨"
             ]
         }
-        
+
         # Budget warning responses (gentle & motivating)
         self.budget_warnings = {
             'low': [  # 50-70%
@@ -83,7 +82,7 @@ class PersonalityResponses:
                 "🔴 {category} udah hampir habis ({percentage}%)! Tenang, masih ada waktu buat adjust! 🎯"
             ]
         }
-        
+
         # Goal progress responses (celebratory!)
         self.goal_progress = {
             'started': [  # 0-25%
@@ -107,7 +106,7 @@ class PersonalityResponses:
                 "🏆 TARGET ACHIEVED! {goal_name} {percentage}%! Luar biasa! 🎉🎉🎉"
             ]
         }
-        
+
         # Weekly report intros (warm greetings)
         self.weekly_intros = [
             "Halo! Ini laporan minggu ini. Yuk kita lihat progress kamu! 📊",
@@ -115,14 +114,14 @@ class PersonalityResponses:
             "Halo teman! Weekly report ready! Let's check it out! 🎯",
             "Hai! Seminggu berlalu nih. Gimana keuangan kamu? Aku analisis ya! 💡"
         ]
-        
+
         # Savings encouragement
         self.savings_encouragement = [
             "Keren! Minggu ini kamu hemat {amount}! Keep it up! 💪",
             "Mantap! Saving {amount} minggu ini! Proud of you! ✨",
             "Wih! Berhasil hemat {amount}! Lanjutkan! 🎯"
         ]
-        
+
         # Overspending gentle reminders
         self.overspending_reminders = [
             "Minggu ini spending naik {amount}. Yuk, coba hemat minggu depan! Kamu pasti bisa! 💛",
@@ -133,35 +132,35 @@ class PersonalityResponses:
     def get_transaction_response(self, amount: int, category: str) -> str:
         """
         Get a supportive response for a transaction confirmation.
-        
+
         Args:
             amount: Transaction amount in IDR
             category: Transaction category (Food, Transport, etc.)
-        
+
         Returns:
             Friendly confirmation message with personality
-            
+
         Example:
             >>> get_transaction_response(25000, "Food")
             "✅ Tercatat! Makan enak nih? Semoga kenyang! 🍽️"
         """
         responses = self.transaction_confirmations.get(
-            category, 
+            category,
             self.transaction_confirmations['default']
         )
         return random.choice(responses)
-    
+
     def get_budget_warning(self, category: str, percentage: float) -> str:
         """
         Get a gentle budget warning based on usage percentage.
-        
+
         Args:
             category: Budget category name
             percentage: Percentage of budget used (0-100+)
-        
+
         Returns:
             Motivating warning message (never harsh!)
-            
+
         Example:
             >>> get_budget_warning("Food", 85)
             "⚠️ Budget Food udah 85% nih! Yuk, coba hemat sedikit..."
@@ -173,27 +172,27 @@ class PersonalityResponses:
             level = 'medium'
         else:
             level = 'high'
-        
+
         template = random.choice(self.budget_warnings[level])
         remaining = 100 - percentage
-        
+
         return template.format(
             category=category,
             percentage=int(percentage),
             remaining=int(remaining)
         )
-    
+
     def get_goal_progress_message(self, goal_name: str, percentage: float) -> str:
         """
         Get a celebratory message for goal progress.
-        
+
         Args:
             goal_name: Name of the goal
             percentage: Progress percentage (0-100+)
-        
+
         Returns:
             Encouraging progress message
-            
+
         Example:
             >>> get_goal_progress_message("MacBook", 75)
             "🚀 MacBook: 75% - TINGGAL DIKIT LAGI! You got this! 🔥"
@@ -209,33 +208,33 @@ class PersonalityResponses:
             level = 'good'
         else:
             level = 'started'
-        
+
         template = random.choice(self.goal_progress[level])
         return template.format(goal_name=goal_name, percentage=int(percentage))
-    
+
     def get_weekly_intro(self) -> str:
         """
         Get a warm intro for weekly reports.
-        
+
         Returns:
             Friendly weekly report greeting
-            
+
         Example:
             >>> get_weekly_intro()
             "Halo! Ini laporan minggu ini. Yuk kita lihat progress kamu! 📊"
         """
         return random.choice(self.weekly_intros)
-    
+
     def get_savings_message(self, amount: int) -> str:
         """
         Get an encouraging message for savings achievement.
-        
+
         Args:
             amount: Amount saved compared to previous period
-        
+
         Returns:
             Celebratory savings message
-            
+
         Example:
             >>> get_savings_message(50000)
             "Keren! Minggu ini kamu hemat Rp 50.000! Keep it up! 💪"
@@ -243,17 +242,17 @@ class PersonalityResponses:
         formatted_amount = f"Rp {amount:,}".replace(',', '.')
         template = random.choice(self.savings_encouragement)
         return template.format(amount=formatted_amount)
-    
+
     def get_overspending_message(self, amount: int) -> str:
         """
         Get a gentle reminder for increased spending (never harsh!).
-        
+
         Args:
             amount: Amount of increased spending
-        
+
         Returns:
             Motivating (not discouraging) reminder
-            
+
         Example:
             >>> get_overspending_message(30000)
             "Spending naik Rp 30.000 nih. Ga apa, next week kita balance..."
@@ -266,10 +265,11 @@ class PersonalityResponses:
 # Singleton instance
 _personality = None
 
+
 def get_personality() -> PersonalityResponses:
     """
     Get singleton personality engine instance.
-    
+
     Returns:
         PersonalityResponses instance
     """

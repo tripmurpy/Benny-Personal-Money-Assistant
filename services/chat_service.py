@@ -69,7 +69,7 @@ class ChatService:
                 # 3. Text starts with pattern
                 if (text_lower == pattern_lower or
                     pattern_lower in text_lower.split() or
-                    text_lower.startswith(pattern_lower)):
+                        text_lower.startswith(pattern_lower)):
                     return random.choice(responses)
 
         return None

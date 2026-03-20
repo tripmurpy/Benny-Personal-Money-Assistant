@@ -25,6 +25,7 @@ from services.expense_query_service import get_expense_query_service
 
 logger = logging.getLogger(__name__)
 
+
 class TelegramService:
     """
     Main Telegram bot service with Benny's personality.
@@ -104,7 +105,8 @@ class TelegramService:
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         uid = str(user_id)
-        if str(chat_id) != str(Config.ADMIN_ID): return
+        if str(chat_id) != str(Config.ADMIN_ID):
+            return
 
         self.last_activity = datetime.now()
 
@@ -154,8 +156,8 @@ class TelegramService:
                     self.pending_inputs.pop(user_id, None)
                     status_msg = await update.message.reply_text("💭 ...")
                     response = await self.ai_service.chat_with_user(
-                        user_text=user_text, 
-                        user_id=uid, 
+                        user_text=user_text,
+                        user_id=uid,
                         reply_context=reply_context
                     )
                     if response:
@@ -322,7 +324,7 @@ class TelegramService:
                 else:
                     status_msg = await update.message.reply_text("💭 ...")
                     response = await self.ai_service.chat_with_user(
-                        user_text=user_text, 
+                        user_text=user_text,
                         user_id=uid
                     )
                     if response:
@@ -538,7 +540,6 @@ class TelegramService:
 
         return has_keyword and not has_number and not is_question and len(text) > 3
 
-
     # ─── DATA HELPERS ───────────────────────────────────────
 
     def _calculate_balance(self, uid: str):
@@ -656,12 +657,12 @@ class TelegramService:
             reply_text += f"{item_line}\n{detail_line}\n\n"
 
         # Check balance
-        is_insufficient = False
         try:
             _, _, current_balance = self._calculate_balance(uid)
             if current_balance < 0:
-                is_insufficient = True
-        except: pass
+                pass
+        except:
+            pass
 
         # Short Summary
         reply_text += "━━━━━━━━━━━━━━━━━━━━\n"
@@ -676,7 +677,7 @@ class TelegramService:
                 remaining = budgets[first_cat]
                 reply_text += f"💰 SALDO {first_cat.upper()} : Rp {remaining:,.0f}".replace(',', '.') + "\n"
                 if remaining <= 0:
-                    is_insufficient = True
+                    pass
 
         if total_income_now > 0:
             reply_text += "\n_Nice! Pemasukan masuk, semangat terus! 🔥_"
@@ -800,7 +801,8 @@ class TelegramService:
                 if len(row) == 2:
                     keyboard.append(row)
                     row = []
-            if row: keyboard.append(row)
+            if row:
+                keyboard.append(row)
 
             keyboard.append([InlineKeyboardButton("🔙 Batal (Pakai Saldo)", callback_data='src_saldo')])
 
@@ -922,7 +924,7 @@ class TelegramService:
             return
 
         # AI analysis handling
-        all_data = self.db.get_all_transactions(uid)
+        self.db.get_all_transactions(uid)
         filtered_data = []
         today = datetime.now()
         period_label = ""
@@ -986,7 +988,8 @@ class TelegramService:
                 total += amt
                 amt_str = "{:,.0f}".format(amt).replace(',', '.')
                 report += f"▪️ {t.get('item_name', '?')} - Rp{amt_str}\n"
-            except: pass
+            except:
+                pass
 
         total_str = "{:,.0f}".format(total).replace(',', '.')
         report += f"\n💰 **Total: Rp {total_str}**"
@@ -1026,7 +1029,8 @@ class TelegramService:
                 total += amt
                 amt_str = "{:,.0f}".format(amt).replace(',', '.')
                 report += f"▪️ {t.get('item_name', '?')} - Rp{amt_str}\n"
-            except: pass
+            except:
+                pass
 
         total_str = "{:,.0f}".format(total).replace(',', '.')
         report += f"\n💰 **Total: Rp {total_str}**"

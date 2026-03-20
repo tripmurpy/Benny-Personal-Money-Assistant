@@ -1,3 +1,7 @@
 {
-    "files.autoSave": "afterDelay"
+    "files.autoSave": "afterDelay",
+    "python.defaultInterpreterPath": "${workspaceFolder}/venv/Scripts/python.exe",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}"
+    ]
 }

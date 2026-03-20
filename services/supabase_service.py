@@ -362,3 +362,21 @@ class SupabaseService:
             return result.data.get("context_data", {})
         except Exception:
             return {}
+
+    # ─── RAG / KNOWLEDGE BASE ────────────────────────────
+
+    def search_knowledge_base(self, query_embedding: List[float], limit: int = 3, threshold: float = 0.5) -> List[Dict]:
+        """Search the knowledge base using vector similarity."""
+        try:
+            result = self._client.rpc(
+                'match_kb_documents',
+                {
+                    'query_embedding': query_embedding,
+                    'match_threshold': threshold,
+                    'match_count': limit
+                }
+            ).execute()
+            return result.data
+        except Exception as e:
+            logger.error(f"❌ Search knowledge base failed: {e}")
+            return []

@@ -1,7 +1,24 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+env/
+venv/
 .env
+
+# Secrets
 finance.db
 creds.json
-venv
+.vscode/
+
+# Logs & Junk
+*.log
+flake8_report.txt
+
+# Knowledge Base (Keep these)
+!admin_tools/Do/*.txt
+!admin_tools/Do/*.md
+!admin_tools/Do/*.pdf
+!admin_tools/Do/*.docx
+!admin_tools/Do/*.html
