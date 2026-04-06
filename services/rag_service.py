@@ -13,7 +13,7 @@ class RAGService:
         Config.validate()
         self.db = SupabaseService()
         self.hf_token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HUGGINGFACE_API_KEY")
-        self.hf_api_url = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
+        self.hf_api_url = "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5"
         self.headers = {"Authorization": f"Bearer {self.hf_token}"} if self.hf_token else {}
 
     def get_embedding(self, text: str) -> List[float]:
@@ -25,7 +25,7 @@ class RAGService:
             response = requests.post(
                 self.hf_api_url,
                 headers=self.headers,
-                json={"inputs": [text], "options": {"wait_for_model": True}}
+                json={"inputs": text, "options": {"wait_for_model": True}}
             )
             response.raise_for_status()
 

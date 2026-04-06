@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import logging
 import argparse
 from typing import List
@@ -23,7 +24,8 @@ except ImportError:
 
 # HuggingFace Settings
 # We use the free interference API. Recommended model: all-MiniLM-L6-v2 (fast, 384 dims, good for standard retrieval)
-HF_API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
+HF_API_URL = "https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5"
+# HF_API_URL_OLD = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2" (Deprecated - 410 Gone)
 HF_TOKEN = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HUGGINGFACE_API_KEY")  # Check both names
 
 
@@ -67,6 +69,36 @@ class DataIngestor:
             logger.error(f"Error reading TXT {file_path}: {e}")
             return ""
 
+    def extract_text_from_json(self, file_path: str) -> str:
+        """Extracts text from a JSON file by converting structured data to readable text."""
+        logger.info(f"Extracting text from JSON {file_path}...")
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # Handle array of menu items (e.g., [{name, description, price}, ...])
+            if isinstance(data, list):
+                parts = []
+                for item in data:
+                    if isinstance(item, dict):
+                        name = item.get('name', '')
+                        desc = item.get('description', '')
+                        price = item.get('price', '')
+                        line = f"{name}: {desc}" if desc else name
+                        if price:
+                            line += f" - Harga: Rp {price}"
+                        parts.append(line)
+                    else:
+                        parts.append(str(item))
+                return "\n".join(parts)
+            elif isinstance(data, dict):
+                return json.dumps(data, indent=2, ensure_ascii=False)
+            else:
+                return str(data)
+        except Exception as e:
+            logger.error(f"Error reading JSON {file_path}: {e}")
+            return ""
+
     def chunk_text(self, text: str) -> List[str]:
         """Splits large text into smaller chunks suitable for embedding."""
         logger.info("Chunking text...")
@@ -80,7 +112,7 @@ class DataIngestor:
             response = requests.post(
                 HF_API_URL,
                 headers=self.headers,
-                json={"inputs": [text], "options": {"wait_for_model": True}}
+                json={"inputs": text, "options": {"wait_for_model": True}}
             )
             response.raise_for_status()
 
@@ -119,6 +151,8 @@ class DataIngestor:
             text = self.extract_text_from_pdf(file_path)
         elif ext in ['.txt', '.md', '.csv']:
             text = self.extract_text_from_txt(file_path)
+        elif ext == '.json':
+            text = self.extract_text_from_json(file_path)
         else:
             logger.error(f"Unsupported file extension: {ext}")
             return
