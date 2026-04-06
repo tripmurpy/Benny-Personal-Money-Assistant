@@ -74,13 +74,13 @@ def set_authenticated(user_data: dict):
 # ─── Message Templates ────────────────────────────────────────────────────────
 
 WELCOME_MSG = (
-    "🔐 *Selamat Datang di Benny Bot!*\n\n"
-    "Asisten keuangan pribadimu yang aman & terpercaya. 💙\n\n"
+    "*Selamat Datang di Benny Bot!*\n\n"
+    "Asisten keuangan pribadimu yang aman & terpercaya. \n\n"
     "Untuk melindungi datamu, silakan login terlebih dahulu.\n\n"
-    "👤 Masukkan *username* kamu:"
+    " Masukkan *username* kamu:"
 )
 
-ASK_PASSWORD_MSG = "🔑 Masukkan *password* kamu:"
+ASK_PASSWORD_MSG = " Masukkan *password* kamu:"
 
 WRONG_CREDS_MSG = (
     "❌ Username atau password salah. *({attempt}/{max})*\n\n"
