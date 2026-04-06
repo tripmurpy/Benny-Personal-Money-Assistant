@@ -99,4 +99,14 @@ Anda **tidak perlu** menggunakan command khusus (`/`) untuk mencatat transaksi h
 <div align="center">
 <i>"Managing money shouldn't feel like accounting. It should feel like a conversation."</i>
 </div>
+## 🔎 Retrieval‑Augmented Generation (RAG) Architecture
+
+**Supabase‑backed RAG System** – The bot stores all knowledge‑base documents (FAQs, menu data, etc.) in a Supabase Postgres database. Vector embeddings are generated with a large‑language model and persisted in the `embeddings` table. At query time, the user's message is embedded, a similarity search is performed via Supabase's `pgvector` extension, retrieving the most relevant chunks. These chunks are then supplied to the LLM as context, enabling accurate, up‑to‑date answers.
+
+**Key Highlights**
+- **Scalable Vector Search** using Supabase `pgvector` for fast similarity lookup.
+- **Real‑time Updates** – New documents are upserted instantly; the RAG index refreshes automatically.
+- **Secure & Private** – All data resides in your Supabase project; no external vector DB.
+- **Modular Design** – The RAG pipeline is encapsulated in a dedicated service module, making it easy to swap embedding models or storage back‑ends.
+
 >>>>>>> bcf70c1 (Initial commit: menambahkan fitur Money Management dan setup dasar)
