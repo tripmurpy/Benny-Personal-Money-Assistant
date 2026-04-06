@@ -87,8 +87,6 @@ class TelegramService:
             f"Halo {user_name}! Aku Benny, sahabat keuanganmu! 💙\n\n"
             "Aku siap bantu kamu catat keuangan dengan mudah:\n"
             "✍️ Chat aja kayak ngobrol biasa\n"
-            "📷 Foto struk belanjaan\n"
-            "🎤 Voice note juga bisa!\n\n"
             "Ayo mulai! Kamu pasti bisa manage keuangan dengan baik! 💪✨"
         )
 
