@@ -14,3 +14,4 @@ numpy>=1.24.0
 supabase
 PyMuPDF
 langchain-text-splitters
+bcrypt

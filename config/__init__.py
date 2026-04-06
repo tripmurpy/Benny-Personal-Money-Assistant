@@ -21,6 +21,10 @@ class Config:
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     ADMIN_ID = os.getenv("ADMIN_CHAT_ID")
 
+    # Bot Security (Login)
+    BOT_USERNAME = os.getenv("BOT_USERNAME", "benny")
+    BOT_PASSWORD_HASH = os.getenv("BOT_PASSWORD_HASH")
+
     # AI Models
     GROQ_MODEL = "llama-3.1-8b-instant"
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")

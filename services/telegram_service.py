@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 
 from config import Config
 from services.ai_service import AIService
+import services.auth_service as auth_svc
 from services.supabase_service import SupabaseService
 from services.ai.coaching_engine import get_coaching_engine
 from services.analytics_service import get_analytics_service
@@ -67,36 +68,166 @@ class TelegramService:
         """Extract user_id as string for Supabase queries."""
         return str(update.effective_user.id)
 
-    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Welcome message with Benny's warm personality and intuitive keyboard.
-
-        Shows persistent keyboard menu optimized for mobile use.
-        Fewer rows = easier tapping on phone screens.
-        """
-        user_name = update.effective_user.first_name
-
+    def _main_keyboard(self):
+        """Return the main bot keyboard after successful login."""
         keyboard = [
             [KeyboardButton("💵 Saldo"), KeyboardButton("📊 Laporan")],
             [KeyboardButton("🧠 Coaching"), KeyboardButton("📄 Export PDF")],
             [KeyboardButton("🎯 Goals"), KeyboardButton("💰 Budgets"), KeyboardButton("📈 Trend")]
         ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-        welcome = (
-            f"Halo {user_name}! Aku Benny, sahabat keuanganmu! 💙\n\n"
-            "Aku siap bantu kamu catat keuangan dengan mudah:\n"
-            "✍️ Chat aja kayak ngobrol biasa\n"
-            "Ayo mulai! Kamu pasti bisa manage keuangan dengan baik! 💪✨"
+    async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Entry point: reset auth state and show secure login prompt.
+        """
+        # Reset auth for every /start
+        auth_svc.init_auth(context.user_data)
+
+        await update.message.reply_text(
+            auth_svc.WELCOME_MSG,
+            parse_mode="Markdown"
         )
 
-        # Register user in Supabase
-        self.db.upsert_user(self._user_id(update), {
-            "username": update.effective_user.username or "",
-            "first_name": user_name or "",
-        })
+    async def _handle_auth_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """
+        Auth + Onboarding state machine.
+        Called by handle_message() when user is not yet AUTHENTICATED.
+        """
+        uid       = self._user_id(update)
+        ud        = context.user_data
+        state     = auth_svc.get_state(ud)
+        text      = (update.message.text or "").strip()
+        chat_id   = update.effective_chat.id
 
-        await update.message.reply_text(welcome, reply_markup=reply_markup)
+        # Guard: only accept text messages during auth/onboarding
+        if not text:
+            await update.message.reply_text(
+                "🔐 Sedang dalam proses login. Tolong ketik teks ya!"
+            )
+            return
+
+        # ── STEP 1: Receive Username ─────────────────────────────────────────
+        if state == auth_svc.STATE_WAITING_USERNAME:
+            ud["auth_temp"]["username"] = text
+            ud["auth_state"] = auth_svc.STATE_WAITING_PASSWORD
+            await update.message.reply_text(auth_svc.ASK_PASSWORD_MSG, parse_mode="Markdown")
+            return
+
+        # ── STEP 2: Receive Password & Verify ────────────────────────────────
+        if state == auth_svc.STATE_WAITING_PASSWORD:
+            username = ud["auth_temp"].get("username", "")
+            ok = auth_svc.verify_credentials(username, text)
+
+            if not ok:
+                ud["auth_attempts"] = ud.get("auth_attempts", 0) + 1
+                attempt = ud["auth_attempts"]
+
+                if attempt >= auth_svc.MAX_ATTEMPTS:
+                    ud["auth_state"] = "LOCKED"
+                    await update.message.reply_text(auth_svc.LOCKED_MSG, parse_mode="Markdown")
+                else:
+                    # Reset to username step
+                    ud["auth_state"] = auth_svc.STATE_WAITING_USERNAME
+                    ud["auth_temp"] = {}
+                    await update.message.reply_text(
+                        auth_svc.WRONG_CREDS_MSG.format(
+                            attempt=attempt,
+                            max=auth_svc.MAX_ATTEMPTS
+                        ),
+                        parse_mode="Markdown"
+                    )
+                return
+
+            # ✅ Credentials OK — check if profile exists
+            profile = self.db.get_user(uid)
+            has_profile = bool(
+                profile
+                and profile.get("full_name")
+                and profile.get("nickname")
+            )
+
+            # Register basic user info
+            self.db.upsert_user(uid, {
+                "username": update.effective_user.username or "",
+                "first_name": update.effective_user.first_name or "",
+            })
+
+            if has_profile:
+                # Returning user — show profile summary
+                ud["auth_state"] = auth_svc.STATE_PROFILE_REVIEW
+                msg = auth_svc.LOGIN_SUCCESS_RETURNING_MSG.format(
+                    full_name=profile.get("full_name", "-"),
+                    nickname=profile.get("nickname", "-"),
+                    birthday=profile.get("birthday", "-"),
+                )
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            else:
+                # New user — start onboarding
+                ud["auth_state"] = auth_svc.STATE_ONBOARDING_NAME
+                await update.message.reply_text(
+                    auth_svc.LOGIN_SUCCESS_NEW_MSG, parse_mode="Markdown"
+                )
+            return
+
+        # ── STEP 3: Profile Review (returning user) ──────────────────────────
+        if state == auth_svc.STATE_PROFILE_REVIEW:
+            if text.lower() in ["ya", "y", "iya", "yes", "update"]:
+                ud["auth_state"] = auth_svc.STATE_ONBOARDING_NAME
+                await update.message.reply_text(
+                    "📝 Oke! Siapa *nama lengkap* kamu?", parse_mode="Markdown"
+                )
+            else:
+                # User doesn't want to update — go straight to bot
+                auth_svc.set_authenticated(ud)
+                profile = self.db.get_user(uid)
+                nickname = profile.get("nickname", update.effective_user.first_name) if profile else update.effective_user.first_name
+                await update.message.reply_text(
+                    f"Sip! Selamat datang kembali, *{nickname}*! 💙\nAda yang mau dicatat hari ini? 💰",
+                    reply_markup=self._main_keyboard(),
+                    parse_mode="Markdown"
+                )
+            return
+
+        # ── STEP 4: Onboarding — Full Name ───────────────────────────────────
+        if state == auth_svc.STATE_ONBOARDING_NAME:
+            ud["auth_temp"]["full_name"] = text
+            ud["auth_state"] = auth_svc.STATE_ONBOARDING_NICKNAME
+            await update.message.reply_text(
+                auth_svc.ASK_NICKNAME_MSG.format(name=text),
+                parse_mode="Markdown"
+            )
+            return
+
+        # ── STEP 5: Onboarding — Nickname ────────────────────────────────────
+        if state == auth_svc.STATE_ONBOARDING_NICKNAME:
+            ud["auth_temp"]["nickname"] = text
+            ud["auth_state"] = auth_svc.STATE_ONBOARDING_BIRTHDAY
+            await update.message.reply_text(
+                auth_svc.ASK_BIRTHDAY_MSG.format(nickname=text),
+                parse_mode="Markdown"
+            )
+            return
+
+        # ── STEP 6: Onboarding — Birthday → Save & Done ──────────────────────
+        if state == auth_svc.STATE_ONBOARDING_BIRTHDAY:
+            full_name = ud["auth_temp"].get("full_name", "")
+            nickname  = ud["auth_temp"].get("nickname", "")
+            birthday  = text
+
+            self.db.save_user_profile(uid, full_name, nickname, birthday)
+            auth_svc.set_authenticated(ud)
+
+            await update.message.reply_text(
+                auth_svc.PROFILE_SAVED_MSG.format(
+                    full_name=full_name,
+                    nickname=nickname,
+                    birthday=birthday,
+                ),
+                reply_markup=self._main_keyboard(),
+                parse_mode="Markdown"
+            )
+            return
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """ROUTER UTAMA: Menangani TEKS, FOTO, dan SUARA."""
@@ -107,6 +238,17 @@ class TelegramService:
             return
 
         self.last_activity = datetime.now()
+
+        # ── Auth Gate: route to auth flow if not authenticated ────────────────
+        if not auth_svc.is_authenticated(context.user_data):
+            state = auth_svc.get_state(context.user_data)
+            if state == "LOCKED":
+                await update.message.reply_text(
+                    "🚫 Sesi terkunci. Ketik /start untuk mencoba kembali."
+                )
+                return
+            await self._handle_auth_flow(update, context)
+            return
 
         # Ensure user profile exists before processing any transactions
         self.db.upsert_user(uid, {

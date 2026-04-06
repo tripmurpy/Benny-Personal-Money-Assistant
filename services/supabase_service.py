@@ -297,6 +297,22 @@ class SupabaseService:
         except Exception:
             return None
 
+    def save_user_profile(self, user_id: str, full_name: str, nickname: str, birthday: str) -> bool:
+        """Save onboarding profile data (full_name, nickname, birthday) for a user."""
+        try:
+            self._client.table("user_profiles").upsert({
+                "user_id": user_id,
+                "full_name": full_name,
+                "nickname": nickname,
+                "birthday": birthday,
+                "last_active": datetime.now().isoformat(),
+            }, on_conflict="user_id").execute()
+            logger.info(f"✅ Profile saved for user {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Save profile failed: {e}")
+            return False
+
     # ─── CHAT HISTORY ────────────────────────────────────
 
     def add_chat(self, user_id: str, role: str, message: str) -> bool:
