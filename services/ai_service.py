@@ -23,6 +23,9 @@ class AIService:
             # Initialize Async Client
             self.client = AsyncGroq(api_key=Config.GROQ_API_KEY)
             self.hf_headers = {"Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}"}
+            import google.generativeai as genai
+            if Config.GEMINI_API_KEY:
+                genai.configure(api_key=Config.GEMINI_API_KEY)
             # logger.info("✅ AI Service Initialized (Async Mode)") # Silenced for clean output
         except Exception as e:
             logger.critical(f"❌ Failed to initialize AI Service: {e}", exc_info=True)
@@ -177,41 +180,44 @@ OTHER RULES:
             return []  # Return empty list gracefully only after logging
 
     async def parse_receipt_image(self, image_bytes: bytes) -> List[Dict]:
-        """[ASYNC] OCR Struk -> JSON using Groq Vision (Llama 3.2)"""
+        """[ASYNC] OCR Struk -> JSON using Gemma 4 E4B"""
         try:
-            # 1. Optimize Image (Blocking CPU operation, keep it minimal or run in executor if heavy)
-            processed_image = self._optimize_image(image_bytes)
+            prompt = """Tolong analisa foto struk belanja atau bukti pembayaran ini.
+Lakukan ekstraksi data secara komprehensif agar siap diinput ke database.
+Kembalikan **HANYA** dalam format JSON (tanpa awalan/akhiran text lain):
+{
+  "items": [
+    {
+      "item": "Nama Barang atau Pembayaran",
+      "category": "Food/Drink/Shopping/Gas/Transport/Komunikasi/Study/Other",
+      "amount": harga_dalam_angka_bulat_integer,
+      "date": "YYYY-MM-DD",
+      "location": "Nama Toko / Tempat (jika ada)"
+    }
+  ]
+}
+Aturan Ekstraksi:
+- 'amount': Konversi nominal ke angka bulat (cth: Rp 50.000 atau 50,000 -> 50000).
+- 'location': Ambil dari logogram gerai, kop surat struk, atau info bill. Jika tidak ada kosongkan ("").
+- 'date': Cari format tanggal transaksi di struk. Jika tidak ada kosongkan ("").
+- 'category': Kategorikan dengan cerdas (contoh: KFC -> Food, Excelso -> Drink)."""
 
-            # 2. Call Groq Vision
-            prompt = "Extract all purchased items, prices, and total date from this receipt. Return JSON format: {items: [{item, category, amount, date}]}. Convert IDR currency (e.g. 50.000 -> 50000)."
+            logger.debug("🔍 Membaca gambar struk dengan Gemma 4 E4B...")
+            import google.generativeai as genai
+            image = Image.open(io.BytesIO(image_bytes))
+            
+            # Use Gemma 4 E4B
+            model = genai.GenerativeModel('models/gemma-4-e4b-it')
+            
+            # Send prompt and image to Gemma
+            response = await model.generate_content_async([prompt, image])
 
-            logger.debug("🔍 Sending image to Groq Vision...")
-            chat_completion = await self.client.chat.completions.create(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{processed_image}",
-                                },
-                            },
-                        ],
-                    }
-                ],
-                model="llama-3.2-90b-vision-preview",
-                temperature=0.1,
-                max_tokens=1024,
-            )
-
-            result_text = chat_completion.choices[0].message.content
+            result_text = response.text
             result = self._clean_json_output(result_text)
             return result.get("items", [])
 
         except Exception as e:
-            logger.error(f"FAILED Groq Vision OCR: {e}")
+            logger.error(f"FAILED Gemma Vision OCR: {e}")
             # Fallback to HuggingFace Florence-2
             logger.info("🔄 Falling back to HF Florence-2...")
             return await self._ocr_fallback_hf(image_bytes)
@@ -250,36 +256,23 @@ OTHER RULES:
             return []
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
-        """[ASYNC] Voice -> Text using Groq Whisper (Fastest & Reliable)"""
-        import tempfile
-        import os
-
+        """[ASYNC] Voice -> Text using Gemma 4 E4B"""
         try:
-            # Groq Whisper is extremely fast (LPU Inference)
-            # We need to save bytes to a temp file first because Groq SDK needs a file-like object with name
-
-            # Use .ogg extension as it mimics the original Telegram voice format
-            with tempfile.NamedTemporaryFile(suffix='.ogg', delete=False) as temp_audio:
-                temp_audio.write(audio_bytes)
-                temp_path = temp_audio.name
-
-            try:
-                logger.debug("🎤 Transcribing with Groq Whisper...")
-                with open(temp_path, 'rb') as audio_file:
-                    transcription = await self.client.audio.transcriptions.create(
-                        model="whisper-large-v3",
-                        file=audio_file,
-                        language="id"  # Optimize for Indonesian
-                    )
-                return str(transcription.text)
-
-            finally:
-                # Cleanup temp file
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
+            logger.debug("🎤 Mendengarkan Voice Note dengan Gemma 4 E4B...")
+            import google.generativeai as genai
+            model = genai.GenerativeModel('models/gemma-4-e4b-it')
+            
+            audio_data = {
+                'mime_type': 'audio/ogg',
+                'data': audio_bytes
+            }
+            prompt = "Tolong dengarkan dan transkripsikan rekaman suara (voice note) ini secara utuh dan akurat ke dalam teks bahasa Indonesia. JIKA ADA nominal uang angka (cth: sepuluh ribu), tuliskan juga angkanya bila perlu. HANYA keluarkan teks hasil transkripsinya saja, tanpa kata pengantar atau penutup apapun."
+            
+            response = await model.generate_content_async([prompt, audio_data])
+            return str(response.text).strip()
 
         except Exception as e:
-            logger.error(f"❌ Groq Whisper Error: {e}")
+            logger.error(f"❌ Gemma Audio Error: {e}")
             return ""
 
     def _optimize_image(self, image_bytes: bytes) -> str:

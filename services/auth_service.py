@@ -34,19 +34,25 @@ MAX_ATTEMPTS = 3
 def verify_credentials(username: str, password: str) -> bool:
     """Verify username + password against .env stored bcrypt hash."""
     stored_username = Config.BOT_USERNAME
-    stored_hash = Config.BOT_PASSWORD_HASH
+    stored_hash     = (Config.BOT_PASSWORD_HASH or "").strip().strip("'\"")
 
-    if not stored_username or not stored_hash:
-        logger.error("❌ BOT_USERNAME or BOT_PASSWORD_HASH not set in .env")
-        return False
-
+    # 1. Check Username Case-Insensitive (strip extra spaces)
     if username.strip().lower() != stored_username.strip().lower():
         return False
 
+    # 2. Check Password using bcrypt
     try:
+        if not stored_hash:
+            logger.error("❌ BOT_PASSWORD_HASH is missing in .env config!")
+            return False
+
+        # Match against bcrypt hash in .env
         return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
     except Exception as e:
-        logger.error(f"❌ bcrypt verification failed: {e}")
+        logger.error(f"❌ Bcrypt verification error: {str(e)}")
+        # Check for common "Invalid salt" error
+        if "Invalid salt" in str(e):
+            logger.info(f"DEBUG: Stored hash starts with: '{stored_hash[:5]}...' Length: {len(stored_hash)}")
         return False
 
 

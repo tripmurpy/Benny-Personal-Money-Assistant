@@ -1,9 +1,6 @@
-<<<<<<< HEAD
-# Benny-Personal-Money-Assistant
-=======
 <div align="center">
 
-# 💸 Money Management v1.0
+# 💸 Benny Personal Money Assistant v1.0
 ### *Your Intelligent Telegram Financial Companion*
 
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](#)
@@ -22,11 +19,13 @@ The Money Management module (v1.0) is designed to eliminate the friction of dail
 
 ## ✨ Key Features (Versi Pertama)
 
-### 1. 🤖 Seamless Natural Language Input
-Forget rigid forms and dropdowns. Log your transactions naturally via chat.
+### 1. 🤖 Seamless Natural Language Input (Powered by Google Gemma 4 E4B)
+Forget rigid forms and dropdowns. Log your transactions naturally via chat, powered by Google's native multimodal AI, Gemma 4 E4B.
 - **Text:** *"Beli kopi 25rb di Starbucks"* ➔ Automatically categorizes as `Food`, deducts `Rp 25.000`, and records the location.
-- **Voice Notes:** Too busy to type? Send a quick voice note (*"Bensin 50 ribu"*), and the bot will transcribe and log it.
-- **Image/OCR:** Snap a picture of your receipt. The AI will extract the items and totals automatically.
+- **Voice Notes (Audio Recognition):** Too busy to type? Send a quick voice note, and Gemma 4 E4B will process the audio natively into text.
+  - *Usecase:* Sedang sibuk menyetir lalu mengisi bensin? Cukup tekan tombol mic di Telegram dan ucapkan *"Bensin pertamax 100 ribu,"* dan AI akan otomatis mencatat pengeluaran Rp 100.000 dengan kategori Gas.
+- **Image/OCR (Visual Understanding):** Snap a picture of your receipt or payment proof. Gemma 4 E4B will extract the purchased items, date, location, and exact prices.
+  - *Usecase:* Selesai belanja mingguan di supermarket dan struknya panjang? Fotokan saja ke bot, lalu AI akan mengenali lokasi/toko, mengekstrak item beserta harga dan merangkum totalnya otomatis ke dalam database tanpa perlu ketik manual.
 
 ### 2. 📊 Smart Balance & Analytics
 Real-time visibility into your financial health.
@@ -101,12 +100,11 @@ Anda **tidak perlu** menggunakan command khusus (`/`) untuk mencatat transaksi h
 </div>
 ## 🔎 Retrieval‑Augmented Generation (RAG) Architecture
 
-**Supabase‑backed RAG System** – The bot stores all knowledge‑base documents (FAQs, menu data, etc.) in a Supabase Postgres database. Vector embeddings are generated with a large‑language model and persisted in the `embeddings` table. At query time, the user's message is embedded, a similarity search is performed via Supabase's `pgvector` extension, retrieving the most relevant chunks. These chunks are then supplied to the LLM as context, enabling accurate, up‑to‑date answers.
+**Supabase‑backed RAG System** – The bot stores all knowledge‑base documents in a Supabase Postgres database. Data yang diserap (*ingested*) secara spesifik mencakup FAQ umum dan informasi kontekstual seperti **data menu harga di Fore Coffee**. Vector embeddings are generated and persisted in the ` embeddings` table. At query time, the user's message is embedded, a similarity search is performed via Supabase's `pgvector` extension, retrieving the most relevant chunks. These chunks are then supplied to the LLM as context, enabling accurate, up‑to‑date answers (contohnya saat bertanya *"Berapa harga Fore Amerikano?"*).
 
 **Key Highlights**
+- **Rich Knowledge Base Ingestion** – Ekstraksi dan konsumsi (*ingest*) database spesifik seperti harga menu Fore Coffee.
 - **Scalable Vector Search** using Supabase `pgvector` for fast similarity lookup.
 - **Real‑time Updates** – New documents are upserted instantly; the RAG index refreshes automatically.
 - **Secure & Private** – All data resides in your Supabase project; no external vector DB.
-- **Modular Design** – The RAG pipeline is encapsulated in a dedicated service module, making it easy to swap embedding models or storage back‑ends.
-
->>>>>>> bcf70c1 (Initial commit: menambahkan fitur Money Management dan setup dasar)
+- **Modular Design** – The RAG pipeline is encapsulated in a dedicated service module.

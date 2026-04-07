@@ -29,6 +29,7 @@ class Config:
     GROQ_MODEL = "llama-3.1-8b-instant"
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HUGGINGFACE_TOKEN")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
     # Supabase
     SUPABASE_URL = os.getenv("SUPABASE_URL")
