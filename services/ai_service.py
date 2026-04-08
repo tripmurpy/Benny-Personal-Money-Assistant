@@ -238,7 +238,7 @@ Aturan Ekstraksi:
         try:
             async with httpx.AsyncClient() as http_client:
                 response = await http_client.post(
-                    "https://api-inference.huggingface.co/models/microsoft/Florence-2-large",
+                    "https://router.huggingface.co/hf-inference/models/microsoft/Florence-2-large",
                     headers=self.hf_headers,
                     json=payload,
                     timeout=45.0
