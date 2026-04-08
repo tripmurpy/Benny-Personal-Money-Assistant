@@ -484,7 +484,7 @@ class TelegramService:
         status_msg = await update.message.reply_text("📷 Membaca struk...")
 
         try:
-            photo = update.message.photo[-2] if len(update.message.photo) > 2 else update.message.photo[-1]
+            photo = update.message.photo[-1]
             file = await context.bot.get_file(photo.file_id)
 
             bio = io.BytesIO()

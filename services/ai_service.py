@@ -180,7 +180,7 @@ OTHER RULES:
             return []  # Return empty list gracefully only after logging
 
     async def parse_receipt_image(self, image_bytes: bytes) -> List[Dict]:
-        """[ASYNC] OCR Struk -> JSON using Gemma 4 E4B"""
+        """[ASYNC] OCR Struk -> JSON using Gemini 1.5 Flash"""
         try:
             prompt = """Tolong analisa foto struk belanja atau bukti pembayaran ini.
 Lakukan ekstraksi data secara komprehensif agar siap diinput ke database.
@@ -202,22 +202,25 @@ Aturan Ekstraksi:
 - 'date': Cari format tanggal transaksi di struk. Jika tidak ada kosongkan ("").
 - 'category': Kategorikan dengan cerdas (contoh: KFC -> Food, Excelso -> Drink)."""
 
-            logger.debug("🔍 Membaca gambar struk dengan Gemma 4 E4B...")
+            logger.debug("🔍 Membaca gambar struk dengan Gemini 1.5 Flash...")
             import google.generativeai as genai
             image = Image.open(io.BytesIO(image_bytes))
             
-            # Use Gemma 4 E4B
-            model = genai.GenerativeModel('models/gemma-4-e4b-it')
+            # Use Gemini 1.5 Flash
+            model = genai.GenerativeModel('models/gemini-1.5-flash')
             
-            # Send prompt and image to Gemma
-            response = await model.generate_content_async([prompt, image])
+            # Send prompt and image to Gemini
+            response = await model.generate_content_async(
+                [prompt, image],
+                generation_config=genai.types.GenerationConfig(response_mime_type="application/json")
+            )
 
             result_text = response.text
             result = self._clean_json_output(result_text)
             return result.get("items", [])
 
         except Exception as e:
-            logger.error(f"FAILED Gemma Vision OCR: {e}")
+            logger.error(f"FAILED Gemini Vision OCR: {e}")
             # Fallback to HuggingFace Florence-2
             logger.info("🔄 Falling back to HF Florence-2...")
             return await self._ocr_fallback_hf(image_bytes)
@@ -256,11 +259,11 @@ Aturan Ekstraksi:
             return []
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
-        """[ASYNC] Voice -> Text using Gemma 4 E4B"""
+        """[ASYNC] Voice -> Text using Gemini 1.5 Flash"""
         try:
-            logger.debug("🎤 Mendengarkan Voice Note dengan Gemma 4 E4B...")
+            logger.debug("🎤 Mendengarkan Voice Note dengan Gemini 1.5 Flash...")
             import google.generativeai as genai
-            model = genai.GenerativeModel('models/gemma-4-e4b-it')
+            model = genai.GenerativeModel('models/gemini-1.5-flash')
             
             audio_data = {
                 'mime_type': 'audio/ogg',
@@ -272,7 +275,7 @@ Aturan Ekstraksi:
             return str(response.text).strip()
 
         except Exception as e:
-            logger.error(f"❌ Gemma Audio Error: {e}")
+            logger.error(f"❌ Gemini Audio Error: {e}")
             return ""
 
     def _optimize_image(self, image_bytes: bytes) -> str:
