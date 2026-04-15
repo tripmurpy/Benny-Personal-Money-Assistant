@@ -30,6 +30,7 @@ class Config:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HUGGINGFACE_TOKEN")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
 
     # Supabase
     SUPABASE_URL = os.getenv("SUPABASE_URL")

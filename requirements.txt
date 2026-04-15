@@ -15,4 +15,5 @@ supabase
 PyMuPDF
 langchain-text-splitters
 bcrypt
-google-generativeai
+google-genai>=1.0.0
+openai

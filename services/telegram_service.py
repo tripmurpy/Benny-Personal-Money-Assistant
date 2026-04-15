@@ -62,6 +62,8 @@ class TelegramService:
         self.pending_inputs = {}    # user_id -> text for incomplete transactions
         self.pending_income = {}    # user_id -> transactions for income tagging
         self.pending_query_data = {}  # user_id -> (transactions, label) for detail button
+        self.pending_modification = {} # user_id -> modification_data
+        self.pending_confirmation = {} # user_id -> { "source": str, "transactions": list }
         logger.info("✅ Benny siap! (Text, OCR, Voice, AI Coaching)")
 
     def _user_id(self, update: Update) -> str:
@@ -256,8 +258,8 @@ class TelegramService:
             "first_name": update.effective_user.first_name or "",
         })
 
-        # --- FOTO (OCR) ---
-        if update.message.photo:
+        # --- FOTO (OCR) OR DOCUMENT (GAMBAR) ---
+        if update.message.photo or (update.message.document and update.message.document.mime_type and update.message.document.mime_type.startswith('image/')):
             await self._handle_photo(update, context)
             return
 
@@ -394,6 +396,87 @@ class TelegramService:
                         )
                     return
 
+                # Transaction modification detection
+                if self._is_transaction_modification(user_text):
+                    status_msg = await update.message.reply_text("🔍 Mencari transaksi yang dimaksud...")
+                    try:
+                        recent_txs = self.db.get_recent_transactions(uid, limit=50)
+                        if not recent_txs:
+                            await context.bot.edit_message_text(
+                                chat_id=chat_id, message_id=status_msg.message_id,
+                                text="📂 Belum ada rekam jejak transaksi nih untuk diubah/hapus. 💙"
+                            )
+                            return
+
+                        # Ask AI to parse the modification intention
+                        mod_result = await self.ai_service.parse_modification(user_text, recent_txs)
+                        
+                        action = mod_result.get("action")
+                        target_id = mod_result.get("target_id")
+                        
+                        if action == "not_found" or not target_id:
+                            await context.bot.edit_message_text(
+                                chat_id=chat_id, message_id=status_msg.message_id,
+                                text="🤔 Aku tidak menemukan transaksi tersebut di riwayat baru-baru ini. Boleh lebih spesifik (tanggal/harganya)?"
+                            )
+                            return
+
+                        # Find original transaction from list
+                        orig_tx = next((t for t in recent_txs if str(t.get("id")) == str(target_id)), None)
+                        if not orig_tx:
+                            await context.bot.edit_message_text(
+                                chat_id=chat_id, message_id=status_msg.message_id,
+                                text="🤔 Transaksi tersebut tidak ditemukan di sistem. Coba lagi!"
+                            )
+                            return
+                            
+                        # Store in pending state
+                        mod_data = {
+                            "action": action,
+                            "target_id": orig_tx.get("id"),
+                            "original": orig_tx,
+                            "new_data": mod_result.get("new_data", {})
+                        }
+                        self.pending_modification[user_id] = mod_data
+                        
+                        # Render confirmation
+                        date_str = orig_tx.get('date', '')
+                        item = orig_tx.get('item_name', 'Item')
+                        amount = int(orig_tx.get('amount', 0))
+                        amt_str = "{:,.0f}".format(amount).replace(',', '.')
+                        
+                        if action == "delete":
+                            msg_text = f"🗑️ **Yakin mau MENGHAPUS transaksi ini?**\n\n📌 {date_str} — {item} — Rp {amt_str}"
+                        elif action == "update":
+                            new_data = mod_data["new_data"]
+                            new_item = new_data.get("item", item)
+                            new_amount = new_data.get("amount", amount)
+                            new_amt_str = "{:,.0f}".format(new_amount).replace(',', '.')
+                            
+                            msg_text = (
+                                f"✏️ **Yakin mau MENGUBAH transaksi ini?**\n\n"
+                                f"**Lama:** {date_str} — {item} — Rp {amt_str}\n"
+                                f"**Baru:** {new_item} — Rp {new_amt_str}"
+                            )
+                            
+                        keyboard = [
+                            [InlineKeyboardButton("[Ya]", callback_data='confirm_mod_yes'),
+                             InlineKeyboardButton("[Tidak]", callback_data='confirm_mod_no')]
+                        ]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id, message_id=status_msg.message_id,
+                            text=msg_text, reply_markup=reply_markup, parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        logger.error(f"Error handling transaction modification: {e}")
+                        await context.bot.edit_message_text(
+                            chat_id=chat_id, message_id=status_msg.message_id,
+                            text="❌ Maaf, otak analisaku lagi loading lama nih. Coba lagi nanti ya! 💙"
+                        )
+                    return
+
                 # Transaction detection
                 if self._is_transaction_input(user_text):
                     status_msg = await update.message.reply_text("⏳ Mencatat transaksi...")
@@ -484,15 +567,19 @@ class TelegramService:
         status_msg = await update.message.reply_text("📷 Membaca struk...")
 
         try:
-            photo = update.message.photo[-1]
-            file = await context.bot.get_file(photo.file_id)
+            if update.message.photo:
+                file_id = update.message.photo[-1].file_id
+            else:
+                file_id = update.message.document.file_id
+                
+            file = await context.bot.get_file(file_id)
 
             bio = io.BytesIO()
             await file.download_to_memory(bio)
             image_bytes = bio.getvalue()
 
             transactions = await self.ai_service.parse_receipt_image(image_bytes)
-            await self._save_and_reply(update, context, transactions, status_msg.message_id)
+            await self._ask_confirmation(update, context, transactions, status_msg.message_id, "Struk OCR")
         except Exception as e:
             logging.error(f"Error Photo: {e}")
             await context.bot.edit_message_text(
@@ -521,15 +608,51 @@ class TelegramService:
 
             await context.bot.edit_message_text(
                 chat_id=chat_id, message_id=status_msg.message_id,
-                text=f'🎤 "{text}"\n⏳ Mencatat...'
+                text=f'🎤 "{text}"\n⏳ Memproses Data...'
             )
             transactions = await self.ai_service.parse_expense(text)
-            await self._save_and_reply(update, context, transactions, status_msg.message_id)
+            await self._ask_confirmation(update, context, transactions, status_msg.message_id, "Voice Note")
         except Exception as e:
             logging.error(f"Error Voice: {e}")
             await context.bot.edit_message_text(
                 chat_id=chat_id, message_id=status_msg.message_id, text="❌ Gagal memproses suara."
             )
+
+    async def _ask_confirmation(self, update, context, transactions, message_id, source):
+        chat_id = update.effective_chat.id
+        uid = update.effective_user.id
+        
+        if not transactions:
+            await context.bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id,
+                text="🤖 Hmm, aku ga nemu data transaksi nih. Coba lagi ya! 💙"
+            )
+            return
+
+        self.pending_confirmation[uid] = {
+            "source": source,
+            "transactions": transactions
+        }
+
+        msg_text = f"📝 **Review Hasil {source}:**\n\n"
+        for t in transactions:
+            item = t.get('item', t.get('item_name', '?'))
+            amt = int(t.get('amount', 0))
+            amt_str = "{:,.0f}".format(amt).replace(',', '.')
+            cat = t.get('category', 'Other')
+            msg_text += f"▪️ {item} — Rp{amt_str} [{cat}]\n"
+
+        keyboard = [
+            [InlineKeyboardButton("✅ Simpan", callback_data='confirm_save_yes')],
+            [InlineKeyboardButton("✏️ Edit Teks", callback_data='confirm_save_edit'),
+             InlineKeyboardButton("❌ Batal", callback_data='confirm_save_no')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await context.bot.edit_message_text(
+            chat_id=chat_id, message_id=message_id,
+            text=msg_text, reply_markup=reply_markup, parse_mode='Markdown'
+        )
 
     async def _handle_expense_query(self, update, context, user_text, query_result):
         """Handle a detected expense query — fetch data, AI summarize, show detail button."""
@@ -603,6 +726,20 @@ class TelegramService:
                 chat_id=chat_id, message_id=status_msg.message_id,
                 text="❌ Maaf, gagal mengambil data. Coba lagi nanti ya! 💙"
             )
+
+    def _is_transaction_modification(self, text: str) -> bool:
+        """Helper: Detect if input is a modification/deletion request."""
+        text_lower = text.lower().strip()
+        import string
+        clean_text = text_lower.translate(str.maketrans('', '', string.punctuation)).strip()
+        words = clean_text.split()
+        
+        modification_keywords = ['hapus', 'ubah', 'ganti', 'salah', 'ralat', 'bukan']
+        has_mod_keyword = any(kw in words for kw in modification_keywords)
+        
+        # Must have at least a mod keyword and another context word, avoiding pure chat or questions
+        is_question = any(q in words for q in ['apa', 'kenapa', 'bagaimana', 'gimana', 'mengapa'])
+        return len(words) >= 2 and has_mod_keyword and not is_question
 
     def _is_transaction_input(self, text: str) -> bool:
         """Helper: Deteksi apakah input adalah transaksi atau pertanyaan/chat biasa."""
@@ -864,6 +1001,70 @@ class TelegramService:
             await query.edit_message_text("⏳ Mengambil data...")
             await self._send_report_to_callback(query, context, period_type, uid)
             return
+
+        # Handle transaction modification confirmation
+        if action.startswith('confirm_mod_'):
+            user_id = update.effective_user.id
+            if user_id not in self.pending_modification:
+                await query.edit_message_text("⚠️ Sesi kadaluarsa. Silakan ulangi perintah ubah/hapus.")
+                return
+
+            mod_data = self.pending_modification.pop(user_id)
+            
+            if action == 'confirm_mod_no':
+                await query.edit_message_text("❌ Aksi dibatalkan.")
+                return
+                
+            if action == 'confirm_mod_yes':
+                await query.edit_message_text("⏳ Memproses permintaan...")
+                try:
+                    target_id = mod_data["target_id"]
+                    mod_action = mod_data["action"]
+                    
+                    if mod_action == "delete":
+                        success = self.db.delete_transaction(target_id)
+                        if success:
+                            await query.edit_message_text("✅ Transaksi berhasil **dihapus**!", parse_mode='Markdown')
+                        else:
+                            await query.edit_message_text("❌ Gagal menghapus transaksi.")
+                            
+                    elif mod_action == "update":
+                        new_data = mod_data["new_data"]
+                        success = self.db.update_transaction(target_id, new_data)
+                        if success:
+                            await query.edit_message_text("✅ Transaksi berhasil **diubah**!", parse_mode='Markdown')
+                        else:
+                            await query.edit_message_text("❌ Gagal mengubah transaksi.")
+                except Exception as e:
+                    logger.error(f"Error executing transaction modification: {e}")
+                    await query.edit_message_text("❌ Terjadi kesalahan saat memproses data.")
+            return
+
+        # Handle Save Confirmation (OCR & Voice)
+        if action.startswith('confirm_save_'):
+            user_id = update.effective_user.id
+            if user_id not in self.pending_confirmation:
+                await query.edit_message_text("⚠️ Sesi kadaluarsa. Silakan ulangi input.")
+                return
+
+            if action == 'confirm_save_no':
+                self.pending_confirmation.pop(user_id)
+                await query.edit_message_text("❌ Aksi dibatalkan.")
+                return
+                
+            data = self.pending_confirmation.pop(user_id)
+            transactions = data['transactions']
+            
+            if action == 'confirm_save_edit':
+                items = [t.get("item", t.get("item_name", "")) for t in transactions]
+                self.pending_inputs[user_id] = f"Dari hasil scan ({', '.join(items)}): "
+                await query.edit_message_text("✏️ Oke, ketik ulang transaksinya beserta nominal yang benar ya!")
+                return
+                
+            if action == 'confirm_save_yes':
+                await query.edit_message_text("⏳ Menyimpan transaksi...")
+                await self._save_and_reply(update, context, transactions, query.message.message_id)
+                return
 
         # Handle Expense Detail button
         if action == 'expense_detail':

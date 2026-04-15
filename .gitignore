@@ -7,6 +7,12 @@ env/
 venv/
 .env
 
+
+admin_tools
+.claude
+docs
+
+
 # Secrets
 finance.db
 creds.json

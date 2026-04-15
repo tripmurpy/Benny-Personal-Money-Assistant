@@ -23,10 +23,18 @@ class AIService:
             # Initialize Async Client
             self.client = AsyncGroq(api_key=Config.GROQ_API_KEY)
             self.hf_headers = {"Authorization": f"Bearer {Config.HUGGINGFACE_API_KEY}"}
-            import google.generativeai as genai
+            
+            from openai import AsyncOpenAI
+            self.openrouter_client = AsyncOpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=Config.OPENROUTER_API_KEY,
+            )
+            
             if Config.GEMINI_API_KEY:
-                genai.configure(api_key=Config.GEMINI_API_KEY)
-            # logger.info("✅ AI Service Initialized (Async Mode)") # Silenced for clean output
+                from google import genai
+                self.gemini_client = genai.Client(api_key=Config.GEMINI_API_KEY)
+            else:
+                self.gemini_client = None
         except Exception as e:
             logger.critical(f"❌ Failed to initialize AI Service: {e}", exc_info=True)
             raise
@@ -179,10 +187,65 @@ OTHER RULES:
             logger.error(f"Error parsing expense text: {e}", exc_info=True)
             return []  # Return empty list gracefully only after logging
 
-    async def parse_receipt_image(self, image_bytes: bytes) -> List[Dict]:
-        """[ASYNC] OCR Struk -> JSON using Gemini 1.5 Flash"""
+    async def parse_modification(self, user_text: str, recent_transactions: List[Dict]) -> Dict:
+        """[ASYNC] Parse natural language for updating or deleting an existing transaction."""
+        import json
+        
+        # Prepare context data
+        tx_data = []
+        for t in recent_transactions:
+            tx_data.append({
+                "id": t.get("id"),
+                "date": t.get("date"),
+                "time": t.get("time"),
+                "item": t.get("item_name"),
+                "amount": t.get("amount"),
+                "category": t.get("category")
+            })
+
+        system_prompt = f"""Kamu adalah bot pendeteksi niat ubah/hapus transaksi keuangan.
+Tugas: Temukan transaksi mana dari history user yang ingin diubah atau dihapus berdasarkan input teksnya.
+
+History transaksi terakhir:
+{json.dumps(tx_data)}
+
+Output Schema:
+{{
+  "action": "update" | "delete" | "not_found",
+  "target_id": "string atau angka id dari transaksi yang cocok" | null,
+  "new_data": {{
+    "amount": integer,
+    "item": "string",
+    "category": "string"
+  }}
+}}
+
+Aturan:
+- "action": "not_found" jika transaksi tidak ada yang cocok secara masuk akal (toleransi wajar).
+- Jika nama mirip (kopi vs teh) atau disebut harganya, periksa dengan teliti.
+- "target_id" HARUS diambil dari "id" transaksi di history. Jika ada 2 transaksi kembar di hari yg sama, ambil record yang masuk di index pertama (yg terakhir user masukkan).
+- "new_data" berlaku hanya untuk "action": "update". HANYA cantumkan atribut yang dirubah. Misal rubah nominal angka: konversikan 15k atau 15rb dsb ke 15000. OUTPUT PURE JSON!
+"""
+
         try:
-            prompt = """Tolong analisa foto struk belanja atau bukti pembayaran ini.
+            chat_completion = await self.client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_text}
+                ],
+                model=Config.GROQ_MODEL,
+                temperature=0.0,
+                response_format={"type": "json_object"}
+            )
+            raw_response = chat_completion.choices[0].message.content
+            return self._clean_json_output(raw_response)
+        except Exception as e:
+            logger.error(f"Error parsing modification: {e}", exc_info=True)
+            return {"action": "not_found", "target_id": None}
+
+    async def parse_receipt_image(self, image_bytes: bytes) -> List[Dict]:
+        """[ASYNC] OCR Struk -> JSON using Gemini 2.5 Flash"""
+        prompt = """Tolong analisa foto struk belanja atau bukti pembayaran ini.
 Lakukan ekstraksi data secara komprehensif agar siap diinput ke database.
 Kembalikan **HANYA** dalam format JSON (tanpa awalan/akhiran text lain):
 {
@@ -202,17 +265,20 @@ Aturan Ekstraksi:
 - 'date': Cari format tanggal transaksi di struk. Jika tidak ada kosongkan ("").
 - 'category': Kategorikan dengan cerdas (contoh: KFC -> Food, Excelso -> Drink)."""
 
-            logger.debug("🔍 Membaca gambar struk dengan Gemini 1.5 Flash...")
-            import google.generativeai as genai
-            image = Image.open(io.BytesIO(image_bytes))
+        try:
+            if not self.gemini_client:
+                raise ValueError("Gemini API Key missing")
             
-            # Use Gemini 1.5 Flash
-            model = genai.GenerativeModel('models/gemini-1.5-flash')
+            logger.debug("🔍 Membaca gambar struk dengan Gemini 2.0 Flash...")
+            from google.genai import types
             
-            # Send prompt and image to Gemini
-            response = await model.generate_content_async(
-                [prompt, image],
-                generation_config=genai.types.GenerationConfig(response_mime_type="application/json")
+            response = await self.gemini_client.aio.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type='image/jpeg'),
+                    prompt
+                ],
+                config=types.GenerateContentConfig(response_mime_type="application/json")
             )
 
             result_text = response.text
@@ -221,65 +287,57 @@ Aturan Ekstraksi:
 
         except Exception as e:
             logger.error(f"FAILED Gemini Vision OCR: {e}")
-            # Fallback to HuggingFace Florence-2
-            logger.info("🔄 Falling back to HF Florence-2...")
-            return await self._ocr_fallback_hf(image_bytes)
+            # Fallback to Qwen 2.5 VL via OpenRouter
+            logger.info("🔄 Falling back to Qwen 2.5 VL (OpenRouter)...")
+            return await self._ocr_fallback_qwen(image_bytes, prompt)
 
-    async def _ocr_fallback_hf(self, image_bytes: bytes) -> List[Dict]:
-        """Fallback OCR using HuggingFace API (Async)"""
-        # Encode implementation again as we need raw base64 for HF
+    async def _ocr_fallback_qwen(self, image_bytes: bytes, prompt: str) -> List[Dict]:
+        """Fallback OCR using Qwen 2.5 VL via OpenRouter (Async)"""
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-
-        payload = {
-            "inputs": "Extract all items and prices from this receipt image.",
-            "parameters": {"image": encoded_image}
-        }
-
         try:
-            async with httpx.AsyncClient() as http_client:
-                response = await http_client.post(
-                    "https://router.huggingface.co/hf-inference/models/microsoft/Florence-2-large",
-                    headers=self.hf_headers,
-                    json=payload,
-                    timeout=45.0
-                )
-
-                if response.status_code != 200:
-                    logger.error(f"HF Fallback Error: {response.status_code} - {response.text}")
-                    return []
-
-                # Florence returns generated text, need to parse carefully or pipe to LLM
-                # For simplicity in this '10x' fix, we return empty or try to parse if structure is known.
-                # Usually Florence needs a second pass to structure data unless prompted perfectly.
-                # We return empty here to avoid garbage data.
-                return []
-
+            response = await self.openrouter_client.chat.completions.create(
+                model="qwen/qwen-2.5-vl-72b-instruct",
+                messages=[
+                    {"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encoded_image}"}}
+                    ]}
+                ],
+                temperature=0.1
+            )
+            
+            raw_response = response.choices[0].message.content
+            result = self._clean_json_output(raw_response)
+            return result.get("items", [])
+            
         except Exception as e:
-            logger.error(f"HF Fallback Exception: {e}")
+            logger.error(f"Qwen Fallback Error: {e}")
             return []
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
-        """[ASYNC] Voice -> Text using Gemini 1.5 Flash"""
+        """[ASYNC] Voice -> Text using Qwen via OpenRouter"""
         try:
-            logger.debug("🎤 Mendengarkan Voice Note dengan Gemini 1.5 Flash...")
-            import google.generativeai as genai
-            model = genai.GenerativeModel('models/gemini-1.5-flash')
-            
-            audio_data = {
-                'mime_type': 'audio/ogg',
-                'data': audio_bytes
-            }
+            logger.debug("🎤 Mendengarkan Voice Note dengan Qwen Audio...")
+            encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
             prompt = "Tolong dengarkan dan transkripsikan rekaman suara (voice note) ini secara utuh dan akurat ke dalam teks bahasa Indonesia. JIKA ADA nominal uang angka (cth: sepuluh ribu), tuliskan juga angkanya bila perlu. HANYA keluarkan teks hasil transkripsinya saja, tanpa kata pengantar atau penutup apapun."
             
-            response = await model.generate_content_async([prompt, audio_data])
-            return str(response.text).strip()
+            response = await self.openrouter_client.chat.completions.create(
+                model="qwen/qwen2-audio-7b-instruct",
+                messages=[
+                    {"role": "user", "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "input_audio", "input_audio": {"data": encoded_audio, "format": "ogg"}}
+                    ]}
+                ]
+            )
+            return response.choices[0].message.content.strip()
 
         except Exception as e:
-            logger.error(f"❌ Gemini Audio Error: {e}")
+            logger.error(f"❌ Qwen Audio Error: {e}")
             return ""
 
-    def _optimize_image(self, image_bytes: bytes) -> str:
-        """Resize and encode image to base64 (CPU Bound)"""
+    def _optimize_image_to_bytes(self, image_bytes: bytes) -> bytes:
+        """Resize and convert image to compressed JPEG bytes (CPU Bound)"""
         image = Image.open(io.BytesIO(image_bytes))
         if image.mode != 'RGB':
             image = image.convert('RGB')
@@ -288,7 +346,11 @@ Aturan Ekstraksi:
 
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG", quality=85)
-        return base64.b64encode(buffered.getvalue()).decode('utf-8')
+        return buffered.getvalue()
+
+    def _optimize_image(self, image_bytes: bytes) -> str:
+        """Resize and encode image to base64 (CPU Bound)"""
+        return base64.b64encode(self._optimize_image_to_bytes(image_bytes)).decode('utf-8')
 
     async def chat_with_user(self, user_text: str, user_id: str | None = None, reply_context: str = "") -> str:
         """

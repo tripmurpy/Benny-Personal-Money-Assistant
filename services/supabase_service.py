@@ -111,6 +111,43 @@ class SupabaseService:
             logger.error(f"❌ Get transactions by date failed: {e}")
             return []
 
+    def update_transaction(self, transaction_id: str, updates: Dict) -> bool:
+        """Update a specific transaction."""
+        try:
+            self._client.table("transactions").update(updates).eq("id", transaction_id).execute()
+            logger.info(f"✅ Transaction {transaction_id} updated successfully")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Update transaction failed: {e}")
+            return False
+
+    def delete_transaction(self, transaction_id: str) -> bool:
+        """Delete a specific transaction."""
+        try:
+            self._client.table("transactions").delete().eq("id", transaction_id).execute()
+            logger.info(f"✅ Transaction {transaction_id} deleted successfully")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Delete transaction failed: {e}")
+            return False
+
+    def get_recent_transactions(self, user_id: str, limit: int = 50) -> List[Dict]:
+        """Get recent transactions for a user, newest first, with limit."""
+        try:
+            result = (
+                self._client.table("transactions")
+                .select("*")
+                .eq("user_id", user_id)
+                .order("date", desc=True)
+                .order("time", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return result.data
+        except Exception as e:
+            logger.error(f"❌ Get recent transactions failed: {e}")
+            return []
+
     # ─── INCOME ──────────────────────────────────────────
 
     def add_income(self, user_id: str, transactions: List[Dict]) -> bool:
