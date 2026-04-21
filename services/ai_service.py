@@ -255,14 +255,16 @@ Kembalikan **HANYA** dalam format JSON (tanpa awalan/akhiran text lain):
       "category": "Food/Drink/Shopping/Gas/Transport/Komunikasi/Study/Other",
       "amount": harga_dalam_angka_bulat_integer,
       "date": "YYYY-MM-DD",
-      "location": "Nama Toko / Tempat (jika ada)"
+      "time": "HH:MM",
+      "location": "Lokasi Pembelian / Nama Toko (jika ada)"
     }
   ]
 }
 Aturan Ekstraksi:
-- 'amount': Konversi nominal ke angka bulat (cth: Rp 50.000 atau 50,000 -> 50000).
-- 'location': Ambil dari logogram gerai, kop surat struk, atau info bill. Jika tidak ada kosongkan ("").
+- 'amount': Konversi nominal harga ke angka bulat (cth: Rp 50.000 atau 50,000 -> 50000).
+- 'location': Ambil lokasi pembelian dari logogram gerai, kop surat struk, atau info bill. Jika tidak ada kosongkan ("").
 - 'date': Cari format tanggal transaksi di struk. Jika tidak ada kosongkan ("").
+- 'time': Cari format jam/waktu transaksi ("Waktu" / "Time") di struk (CTH: 14:30). Jika tidak ada kosongkan ("").
 - 'category': Kategorikan dengan cerdas (contoh: KFC -> Food, Excelso -> Drink)."""
 
         try:
@@ -292,11 +294,11 @@ Aturan Ekstraksi:
             return await self._ocr_fallback_qwen(image_bytes, prompt)
 
     async def _ocr_fallback_qwen(self, image_bytes: bytes, prompt: str) -> List[Dict]:
-        """Fallback OCR using Qwen 2.5 VL via OpenRouter (Async)"""
+        """Fallback OCR using Qwen VL Plus via OpenRouter (Async)"""
         encoded_image = base64.b64encode(image_bytes).decode('utf-8')
         try:
             response = await self.openrouter_client.chat.completions.create(
-                model="qwen/qwen-2.5-vl-72b-instruct",
+                model="qwen/qwen-vl-plus",
                 messages=[
                     {"role": "user", "content": [
                         {"type": "text", "text": prompt},
