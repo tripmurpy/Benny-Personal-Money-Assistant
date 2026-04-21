@@ -315,25 +315,22 @@ Aturan Ekstraksi:
             return []
 
     async def transcribe_audio(self, audio_bytes: bytes) -> str:
-        """[ASYNC] Voice -> Text using Qwen via OpenRouter"""
+        """[ASYNC] Voice -> Text using Whisper via Groq"""
         try:
-            logger.debug("🎤 Mendengarkan Voice Note dengan Qwen Audio...")
-            encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
-            prompt = "Tolong dengarkan dan transkripsikan rekaman suara (voice note) ini secara utuh dan akurat ke dalam teks bahasa Indonesia. JIKA ADA nominal uang angka (cth: sepuluh ribu), tuliskan juga angkanya bila perlu. HANYA keluarkan teks hasil transkripsinya saja, tanpa kata pengantar atau penutup apapun."
+            logger.debug("🎤 Mendengarkan Voice Note dengan Whisper (Groq)...")
+            prompt = "Tolong dengarkan dan transkripsikan rekaman suara (voice note) ini secara utuh dan akurat ke dalam teks bahasa Indonesia. JIKA ADA nominal uang angka (cth: sepuluh ribu), tuliskan juga angkanya bila perlu."
             
-            response = await self.openrouter_client.chat.completions.create(
-                model="qwen/qwen2-audio-7b-instruct",
-                messages=[
-                    {"role": "user", "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "input_audio", "input_audio": {"data": encoded_audio, "format": "ogg"}}
-                    ]}
-                ]
+            response = await self.client.audio.transcriptions.create(
+                file=("voice.ogg", audio_bytes),
+                model="whisper-large-v3-turbo",
+                prompt=prompt,
+                response_format="json",
+                language="id"
             )
-            return response.choices[0].message.content.strip()
+            return response.text.strip()
 
         except Exception as e:
-            logger.error(f"❌ Qwen Audio Error: {e}")
+            logger.error(f"❌ Whisper Audio Error: {e}")
             return ""
 
     def _optimize_image_to_bytes(self, image_bytes: bytes) -> bytes:

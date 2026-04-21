@@ -483,6 +483,13 @@ class TelegramService:
                     try:
                         transactions = await self.ai_service.parse_expense(user_text)
 
+                        if not transactions:
+                            await context.bot.edit_message_text(
+                                chat_id=chat_id, message_id=status_msg.message_id,
+                                text="🤖 Hmm, aku ga nemu data transaksi nih atau sistem AInya lagi error. Coba lagi ya! 💙"
+                            )
+                            return
+
                         # Check for Income
                         has_income = any(
                             str(t.get('category', '')).lower() in ['income', 'pemasukan', 'gaji']
@@ -504,7 +511,11 @@ class TelegramService:
                         else:
                             self.pending_expenses[user_id] = transactions
 
-                            first_cat = transactions[0].get('category', '').lower()
+                            if transactions:
+                                first_cat = transactions[0].get('category', '').lower()
+                            else:
+                                first_cat = 'other'
+                                
                             budgets = self.budget_service.get_budgets()
 
                             keyboard = [[InlineKeyboardButton("💳 Saldo (Umum)", callback_data='src_saldo')]]
