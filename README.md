@@ -17,14 +17,29 @@
 
 The Money Management module (v1.0) is designed to eliminate the friction of daily expense tracking. By leveraging Natural Language Processing and AI, we transform tedious financial data entry into a casual chat experience. 
 
-## ✨ Key Features (Versi Pertama)
+## 🎬 The Evolution: Bounding Into The Future
+*“A good assistant writes down what you say. A brilliant assistant genuinely listens and sees the world as you do.”*
 
-### 1. 🤖 Seamless Natural Language Input (Powered by Google Gemma 4 E4B)
-Forget rigid forms and dropdowns. Log your transactions naturally via chat, powered by Google's native multimodal AI, Gemma 4 E4B.
+In our latest breakthrough update, we pushed the boundaries of how you interact with Benny. We transformed him from a text-based bot into an assistant with sharp eyes and keen ears, seamlessly integrating world-class AI models.
+
+### 👁️ Fitur Scan Struct (Powered by Qwen VL)
+**No more manual typing.**
+Selesai belanja mingguan? Cukup ambil foto bon, struk, atau bukti pengeluaran Anda. Dengan kekuatan penglihatan canggih dari **Qwen VL**, Benny akan memindai, menganalisis, dan mencatat setiap detail pengeluaran Anda secara otomatis dan terstruktur. AI melihatnya, AI mencatatnya.
+
+### 👂 Fitur Listening (Powered by Groq OpenAI Whisper)
+**Just speak, and Benny will answer.**
+Sekarang Benny sudah bisa mendengar suaramu. Sedang menyetir atau terlalu lelah mengetik? Cukup tekan tombol mikrofon, kirimkan *voice note*, dan biarkan Benny bekerja. Menggunakan kecepatan kilat dan akurasi dari **Groq OpenAI Whisper**, suaramu diubah menjadi aksi secara instan.
+
+---
+
+## ✨ Key Features
+
+### 1. 🤖 Seamless Natural Language Input
+Forget rigid forms and dropdowns. Log your transactions naturally via chat, powered by an ensemble of cutting-edge AI models.
 - **Text:** *"Beli kopi 25rb di Starbucks"* ➔ Automatically categorizes as `Food`, deducts `Rp 25.000`, and records the location.
-- **Voice Notes (Audio Recognition):** Too busy to type? Send a quick voice note, and Gemma 4 E4B will process the audio natively into text.
+- **Voice Notes (Audio Recognition):** Too busy to type? Send a quick voice note, instantly processed by **Groq OpenAI Whisper**.
   - *Usecase:* Sedang sibuk menyetir lalu mengisi bensin? Cukup tekan tombol mic di Telegram dan ucapkan *"Bensin pertamax 100 ribu,"* dan AI akan otomatis mencatat pengeluaran Rp 100.000 dengan kategori Gas.
-- **Image/OCR (Visual Understanding):** Snap a picture of your receipt or payment proof. Gemma 4 E4B will extract the purchased items, date, location, and exact prices.
+- **Image/OCR (Visual Understanding):** Snap a picture of your receipt or payment proof. **Qwen VL** will extract the purchased items, date, location, and exact prices.
   - *Usecase:* Selesai belanja mingguan di supermarket dan struknya panjang? Fotokan saja ke bot, lalu AI akan mengenali lokasi/toko, mengekstrak item beserta harga dan merangkum totalnya otomatis ke dalam database tanpa perlu ketik manual.
 
 ### 2. 📊 Smart Balance & Analytics
