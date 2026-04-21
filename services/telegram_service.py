@@ -646,12 +646,26 @@ class TelegramService:
         }
 
         msg_text = f"📝 **Review Hasil {source}:**\n\n"
-        for t in transactions:
+        for i, t in enumerate(transactions):
+            date_val = t.get('date', '-')
             item = t.get('item', t.get('item_name', '?'))
             amt = int(t.get('amount', 0))
             amt_str = "{:,.0f}".format(amt).replace(',', '.')
-            cat = t.get('category', 'Other')
-            msg_text += f"▪️ {item} — Rp{amt_str} [{cat}]\n"
+            loc = t.get('location', '-')
+            
+            if loc == "":
+                loc = "-"
+            if date_val == "":
+                date_val = "-"
+                
+            msg_text += (
+                f"📅 **DATE**       : {date_val}\n"
+                f"🛒 **ITEMS**      : {item}\n"
+                f"💸 **AMOUNT**     : Rp {amt_str}\n"
+                f"📍 **LOCATION**   : {loc}\n"
+            )
+            if i < len(transactions) - 1:
+                msg_text += "\n────────────────────────\n\n"
 
         keyboard = [
             [InlineKeyboardButton("✅ Simpan", callback_data='confirm_save_yes')],
