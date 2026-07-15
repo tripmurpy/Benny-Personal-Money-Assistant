@@ -42,8 +42,41 @@ class SupabaseService:
 
     # ─── TRANSACTIONS ────────────────────────────────────
 
-    def add_transactions_bulk(self, user_id: str, transactions: List[Dict]) -> bool:
-        """Insert multiple expense transactions in a single batch."""
+    def _write_rows(
+        self, table: str, user_id: str, rows: List[Dict], operation_id: Optional[str]
+    ) -> Dict:
+        """Write rows and return database-confirmed records."""
+        if not user_id or not rows:
+            return {"ok": False, "records": [], "error": "invalid_transaction"}
+
+        try:
+            if operation_id:
+                for index, row in enumerate(rows):
+                    row["operation_id"] = f"{operation_id}:{index}"
+                result = self._client.table(table).upsert(
+                    rows, on_conflict="user_id,operation_id"
+                ).execute()
+            else:
+                result = self._client.table(table).insert(rows).execute()
+
+            records = result.data or []
+            confirmed = len(records) == len(rows)
+            return {
+                "ok": confirmed,
+                "records": records,
+                "error": None if confirmed else "write_not_confirmed",
+            }
+        except Exception as e:
+            logger.error(f"❌ Write to {table} failed: {e}")
+            return {"ok": False, "records": [], "error": "database_write_failed"}
+
+    def add_transactions_bulk(
+        self,
+        user_id: str,
+        transactions: List[Dict],
+        operation_id: Optional[str] = None,
+    ) -> Dict:
+        """Insert expense transactions and return confirmed records."""
         try:
             now = datetime.now()
             today_str = date.today().isoformat()
@@ -70,12 +103,13 @@ class SupabaseService:
                 for tx in transactions
             ]
 
-            self._client.table("transactions").insert(rows).execute()
-            logger.info(f"✅ {len(rows)} transactions inserted for user {user_id}")
-            return True
+            if any(not row["item_name"] or row["amount"] <= 0 for row in rows):
+                return {"ok": False, "records": [], "error": "invalid_transaction"}
+
+            return self._write_rows("transactions", user_id, rows, operation_id)
         except Exception as e:
             logger.error(f"❌ Insert transactions failed: {e}")
-            return False
+            return {"ok": False, "records": [], "error": "invalid_transaction"}
 
     def get_all_transactions(self, user_id: str) -> List[Dict]:
         """Get all transactions for a user, newest first."""
@@ -111,25 +145,78 @@ class SupabaseService:
             logger.error(f"❌ Get transactions by date failed: {e}")
             return []
 
-    def update_transaction(self, transaction_id: str, updates: Dict) -> bool:
-        """Update a specific transaction."""
+    def update_transaction(self, user_id: str, transaction_id: str, updates: Dict) -> bool:
+        """Update one transaction owned by the user."""
         try:
-            self._client.table("transactions").update(updates).eq("id", transaction_id).execute()
+            result = (
+                self._client.table("transactions")
+                .update(updates)
+                .eq("user_id", user_id)
+                .eq("id", transaction_id)
+                .execute()
+            )
+            if not result.data:
+                return False
             logger.info(f"✅ Transaction {transaction_id} updated successfully")
             return True
         except Exception as e:
             logger.error(f"❌ Update transaction failed: {e}")
             return False
 
-    def delete_transaction(self, transaction_id: str) -> bool:
-        """Delete a specific transaction."""
+    def delete_transaction(self, user_id: str, transaction_id: str) -> bool:
+        """Delete one transaction owned by the user."""
         try:
-            self._client.table("transactions").delete().eq("id", transaction_id).execute()
+            result = (
+                self._client.table("transactions")
+                .delete()
+                .eq("user_id", user_id)
+                .eq("id", transaction_id)
+                .execute()
+            )
+            if not result.data:
+                return False
             logger.info(f"✅ Transaction {transaction_id} deleted successfully")
             return True
         except Exception as e:
             logger.error(f"❌ Delete transaction failed: {e}")
             return False
+
+    def delete_operation(self, user_id: str, table: str, operation_id: str) -> bool:
+        """Delete records created by one idempotent capture operation."""
+        if table not in {"transactions", "income"} or not operation_id:
+            return False
+
+        try:
+            result = (
+                self._client.table(table)
+                .delete()
+                .eq("user_id", user_id)
+                .like("operation_id", f"{operation_id}:%")
+                .execute()
+            )
+            return bool(result.data)
+        except Exception as e:
+            logger.error(f"❌ Delete capture operation failed: {e}")
+            return False
+
+    def get_record(self, user_id: str, table: str, record_id: str) -> Optional[Dict]:
+        """Fetch one user-owned expense or income record."""
+        if table not in {"transactions", "income"}:
+            return None
+
+        try:
+            result = (
+                self._client.table(table)
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("id", record_id)
+                .limit(1)
+                .execute()
+            )
+            return result.data[0] if result.data else None
+        except Exception as e:
+            logger.error(f"❌ Get record failed: {e}")
+            return None
 
     def get_recent_transactions(self, user_id: str, limit: int = 50) -> List[Dict]:
         """Get recent transactions for a user, newest first, with limit."""
@@ -150,8 +237,13 @@ class SupabaseService:
 
     # ─── INCOME ──────────────────────────────────────────
 
-    def add_income(self, user_id: str, transactions: List[Dict]) -> bool:
-        """Insert one or more income records."""
+    def add_income(
+        self,
+        user_id: str,
+        transactions: List[Dict],
+        operation_id: Optional[str] = None,
+    ) -> Dict:
+        """Insert income records and return confirmed records."""
         try:
             now = datetime.now()
             today_str = date.today().isoformat()
@@ -176,12 +268,13 @@ class SupabaseService:
                 for tx in transactions
             ]
 
-            self._client.table("income").insert(rows).execute()
-            logger.info(f"✅ {len(rows)} income records inserted for user {user_id}")
-            return True
+            if any(not row["source"] or row["amount"] <= 0 for row in rows):
+                return {"ok": False, "records": [], "error": "invalid_transaction"}
+
+            return self._write_rows("income", user_id, rows, operation_id)
         except Exception as e:
             logger.error(f"❌ Insert income failed: {e}")
-            return False
+            return {"ok": False, "records": [], "error": "invalid_transaction"}
 
     def get_income(self, user_id: str) -> List[Dict]:
         """Get all income records for a user, newest first."""
@@ -198,7 +291,70 @@ class SupabaseService:
             logger.error(f"❌ Get income failed: {e}")
             return []
 
+    def update_income(self, user_id: str, income_id: str, updates: Dict) -> bool:
+        """Update one income record owned by the user."""
+        try:
+            result = (
+                self._client.table("income")
+                .update(updates)
+                .eq("user_id", user_id)
+                .eq("id", income_id)
+                .execute()
+            )
+            return bool(result.data)
+        except Exception as e:
+            logger.error(f"❌ Update income failed: {e}")
+            return False
+
+    def delete_income(self, user_id: str, income_id: str) -> bool:
+        """Delete one income record owned by the user."""
+        try:
+            result = (
+                self._client.table("income")
+                .delete()
+                .eq("user_id", user_id)
+                .eq("id", income_id)
+                .execute()
+            )
+            return bool(result.data)
+        except Exception as e:
+            logger.error(f"❌ Delete income failed: {e}")
+            return False
+
     # ─── GOALS ───────────────────────────────────────────
+
+    def _mutate_goal(
+        self,
+        user_id: str,
+        action: str,
+        goal_id: Optional[int] = None,
+        name: Optional[str] = None,
+        target: Optional[int] = None,
+        deadline: Optional[str] = None,
+        amount: Optional[int] = None,
+    ) -> Optional[Dict]:
+        """Run a goal mutation and its audit write in one database transaction."""
+        if not user_id or action not in {"create", "cancel", "contribute", "withdraw"}:
+            return None
+        try:
+            result = self._client.rpc(
+                "mutate_goal",
+                {
+                    "p_user_id": user_id,
+                    "p_action": action,
+                    "p_goal_id": goal_id,
+                    "p_name": name,
+                    "p_target_amount": target,
+                    "p_deadline": deadline,
+                    "p_amount": amount,
+                },
+            ).execute()
+            if isinstance(result.data, list):
+                return result.data[0] if result.data else None
+            return result.data if isinstance(result.data, dict) else None
+        except Exception as e:
+            logger.error(f"Goal {action} failed: {e}")
+            return None
 
     def create_goal(
         self,
@@ -209,14 +365,10 @@ class SupabaseService:
     ) -> bool:
         """Create a new financial goal."""
         try:
-            self._client.table("goals").insert(
-                {
-                    "user_id": user_id,
-                    "name": name,
-                    "target_amount": target,
-                    "deadline": deadline,
-                }
-            ).execute()
+            if self._mutate_goal(
+                user_id, "create", name=name, target=target, deadline=deadline
+            ) is None:
+                return False
             logger.info(f"✅ Goal '{name}' created for user {user_id}")
             return True
         except Exception as e:
@@ -230,7 +382,7 @@ class SupabaseService:
                 self._client.table("goals")
                 .select("*")
                 .eq("user_id", user_id)
-                .eq("status", "active")
+                .neq("status", "cancelled")
                 .execute()
             )
             return result.data
@@ -238,23 +390,35 @@ class SupabaseService:
             logger.error(f"❌ Get goals failed: {e}")
             return []
 
-    def update_goal(self, goal_id: int, updates: Dict) -> bool:
-        """Update a goal by ID (e.g. current_amount, status)."""
-        try:
-            updates["updated_at"] = datetime.now().isoformat()
-            self._client.table("goals").update(updates).eq("id", goal_id).execute()
-            return True
-        except Exception as e:
-            logger.error(f"❌ Update goal failed: {e}")
-            return False
+    def contribute_goal(self, user_id: str, goal_id: int, amount: int) -> Optional[Dict]:
+        return self._mutate_goal(user_id, "contribute", goal_id=goal_id, amount=amount)
 
-    def delete_goal(self, goal_id: int) -> bool:
+    def withdraw_goal(self, user_id: str, goal_id: int, amount: int) -> Optional[Dict]:
+        return self._mutate_goal(user_id, "withdraw", goal_id=goal_id, amount=amount)
+
+    def get_goal_history(
+        self, user_id: str, goal_id: int, limit: int = 20
+    ) -> List[Dict]:
+        """Get newest audit entries for one user-owned goal."""
+        try:
+            result = (
+                self._client.table("goal_history")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("goal_id", goal_id)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            return result.data
+        except Exception as e:
+            logger.error(f"Get goal history failed: {e}")
+            return []
+
+    def delete_goal(self, user_id: str, goal_id: int) -> bool:
         """Soft-delete a goal by marking it as cancelled."""
         try:
-            self._client.table("goals").update(
-                {"status": "cancelled", "updated_at": datetime.now().isoformat()}
-            ).eq("id", goal_id).execute()
-            return True
+            return self._mutate_goal(user_id, "cancel", goal_id=goal_id) is not None
         except Exception as e:
             logger.error(f"❌ Delete goal failed: {e}")
             return False

@@ -7,15 +7,20 @@ from datetime import datetime
 from telegram.error import BadRequest
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters, ContextTypes
+    CallbackQueryHandler, PicklePersistence, filters, ContextTypes
 )
-from config import Config, Messages
+from config import Config
 from services.telegram_service import TelegramService
-from services.goal_handlers import handle_set_goal, handle_goals, handle_delete_goal
+from services.goal_handlers import (
+    handle_set_goal, handle_goals, handle_delete_goal,
+    handle_contribute_goal, handle_withdraw_goal, handle_goal_history,
+)
 from services.budget_handlers import (
     handle_set_budget, handle_budgets, handle_delete_budget,
     check_budget_warning_job
 )
+from services.reminder_handlers import handle_reminder
+from services.reminder_service import ReminderService
 
 # Configure logging
 logging.basicConfig(
@@ -36,15 +41,15 @@ async def check_inactivity(context):
     if not tg_service:
         return
 
-    hours = (datetime.now() - tg_service.last_activity).total_seconds() / 3600
-
-    if hours >= Config.INACTIVITY_HOURS:
+    now = datetime.now()
+    reminder = ReminderService(tg_service.db, Config.ADMIN_ID)
+    if reminder.should_send(tg_service.last_activity, now):
         try:
             await context.bot.send_message(
                 chat_id=Config.ADMIN_ID,
-                text=Messages.INACTIVITY_REMINDER.format(hours=int(hours))
+                text="Ada transaksi hari ini yang belum tercatat?"
             )
-            tg_service.last_activity = datetime.now()
+            reminder.mark_sent(now)
         except Exception as e:
             logger.error(f"Inactivity check failed: {e}")
 
@@ -68,8 +73,7 @@ def setup_handlers(app, tg_service):
         admin_id = int(Config.ADMIN_ID)
         admin_filter = filters.User(user_id=admin_id)
     except (ValueError, TypeError):
-        logger.warning("⚠️ ADMIN_ID not set or invalid. Security filter disabled (NOT SAFE).")
-        admin_filter = filters.ALL
+        raise ValueError("ADMIN_CHAT_ID must be a numeric Telegram user ID")
 
     # Global error handler
     app.add_error_handler(error_handler)
@@ -78,7 +82,9 @@ def setup_handlers(app, tg_service):
     app.add_handler(CallbackQueryHandler(tg_service.handle_button))
     app.add_handler(CommandHandler('start', tg_service.start, filters=admin_filter))
     app.add_handler(MessageHandler(
-        (filters.TEXT | filters.PHOTO | filters.VOICE) & (~filters.COMMAND) & admin_filter,
+        (filters.TEXT | filters.PHOTO | filters.Document.IMAGE | filters.VOICE)
+        & (~filters.COMMAND)
+        & admin_filter,
         tg_service.handle_message
     ))
 
@@ -86,9 +92,14 @@ def setup_handlers(app, tg_service):
     for cmd, handler in [
         ('setgoal', handle_set_goal),
         ('goals', handle_goals),
+        ('contributegoal', handle_contribute_goal),
+        ('withdrawgoal', handle_withdraw_goal),
+        ('goalhistory', handle_goal_history),
         ('deletegoal', handle_delete_goal)
     ]:
         app.add_handler(CommandHandler(cmd, handler, filters=admin_filter))
+
+    app.add_handler(CommandHandler('reminder', handle_reminder, filters=admin_filter))
 
     # Budget handlers
     for cmd, handler in [
@@ -105,8 +116,8 @@ def setup_jobs(app):
     from datetime import time
     job_queue = app.job_queue
 
-    # Check inactivity every 6 hours
-    job_queue.run_repeating(check_inactivity, interval=21600, first=60)
+    # Check the selected reminder window every 15 minutes
+    job_queue.run_repeating(check_inactivity, interval=900, first=60)
 
     # Check budget warnings every 6 hours
     job_queue.run_repeating(check_budget_warning_job, interval=21600, first=300)
@@ -120,14 +131,12 @@ def setup_jobs(app):
 
 
 async def send_weekly_coaching_report(context):
-    """Send weekly AI coaching report to user."""
-    from services.ai.coaching_engine import get_coaching_engine
+    """Send one deterministic weekly insight and one action."""
     from services.supabase_service import SupabaseService
     from datetime import datetime, timedelta
 
     try:
         db = SupabaseService()
-        coaching_engine = get_coaching_engine()
         uid = str(Config.ADMIN_ID)
 
         today = datetime.now()
@@ -139,18 +148,33 @@ async def send_weekly_coaching_report(context):
         previous_week = db.get_transactions_by_date(uid, prev_week_start, week_start)
 
         if current_week:
-            report_data = coaching_engine.generate_weekly_report(current_week, previous_week)
-            message = coaching_engine.format_weekly_report_message(report_data)
+            current_total = sum(max(0, int(row.get("amount", 0))) for row in current_week)
+            previous_total = sum(max(0, int(row.get("amount", 0))) for row in previous_week)
+            delta = current_total - previous_total
+            categories = {}
+            for row in current_week:
+                category = str(row.get("category", "Other"))
+                categories[category] = categories.get(category, 0) + max(
+                    0, int(row.get("amount", 0))
+                )
+            top_category = max(categories, key=categories.get)
+            direction = "naik" if delta > 0 else "turun" if delta < 0 else "tetap"
+            message = (
+                "Ringkasan 7 Hari\n\n"
+                f"Pengeluaran Rp{current_total:,.0f}, {direction} "
+                f"Rp{abs(delta):,.0f} dari minggu lalu.\n"
+                f"Terbesar: {top_category} · Rp{categories[top_category]:,.0f}\n\n"
+                f"Tindakan: periksa transaksi {top_category} di Riwayat."
+            ).replace(",", ".")
 
             await context.bot.send_message(
                 chat_id=Config.ADMIN_ID,
-                text="📅 *LAPORAN MINGGUAN OTOMATIS*\n\n" + message,
-                parse_mode='Markdown',
+                text=message,
             )
-            logger.info("✅ Weekly coaching report sent")
+            logger.info("✅ Weekly digest sent")
 
     except Exception as e:
-        logger.error(f"Failed to send weekly coaching report: {e}")
+        logger.error(f"Failed to send weekly digest: {e}")
 
 
 # ... imports ...
@@ -167,7 +191,12 @@ def main():
 
     # Initialize services
     tg_service = TelegramService()
-    application = ApplicationBuilder().token(Config.TELEGRAM_TOKEN).build()
+    application = (
+        ApplicationBuilder()
+        .token(Config.TELEGRAM_TOKEN)
+        .persistence(PicklePersistence(filepath="bot-state.pickle"))
+        .build()
+    )
     application.bot_data['tg_service'] = tg_service
 
     # Setup handlers and jobs

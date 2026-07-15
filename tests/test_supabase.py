@@ -10,7 +10,7 @@ db = SupabaseService()
 
 # Test 1: Insert a test transaction
 print("─── Test 1: Insert ───")
-success = db.add_transactions_bulk(
+result = db.add_transactions_bulk(
     "test_user",
     [
         {
@@ -21,7 +21,7 @@ success = db.add_transactions_bulk(
         }
     ],
 )
-print(f"Insert: {'✅' if success else '❌'}")
+print(f"Insert: {'✅' if result['ok'] else '❌'}")
 
 # Test 2: Read back the transaction
 print("\n─── Test 2: Read ───")

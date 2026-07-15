@@ -1,55 +1,37 @@
-"""
-Budget Handlers — Telegram command handlers for budget management.
-"""
+"""Telegram handlers for fixed monthly budgets."""
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes
-from services.budget_service import BudgetService
-from services.supabase_service import SupabaseService
-from config import Config
-from config import goals_config
 import logging
-from datetime import datetime
+import re
+
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
+
+from config import Config
+from services.budget_service import BudgetService
+from services.event_logger import log_event
 
 logger = logging.getLogger(__name__)
-
 budget_service = BudgetService()
-db = SupabaseService()
-
-# State storage for top-up flow
-pending_topup = {}  # user_id -> category
+pending_topup = {}
 
 
 def _parse_indonesian_currency(text: str) -> int:
-    """Parse Indonesian currency format to integer."""
-    import re
-
-    text = text.lower().strip()
-    text = text.replace('.', '').replace(',', '').replace('rp', '').strip()
-
-    # Handle "ribu" / "rb" / "k"
-    if 'ribu' in text or ' rb' in text or text.endswith('rb') or ' k' in text or text.endswith('k'):
-        number_part = re.sub(r'[^\d]', '', text)
-        if number_part:
-            return int(number_part) * 1000
-
-    # Handle "juta" / "jt" / "million"
-    if 'juta' in text or 'jt' in text or 'million' in text:
-        number_part = re.sub(r'[^\d]', '', text)
-        if number_part:
-            return int(number_part) * 1000000
-
-    # Plain number
-    number_part = re.sub(r'[^\d]', '', text)
-    return int(number_part) if number_part else 0
+    """Parse common Indonesian currency text to integer rupiah."""
+    text = text.lower().strip().replace(".", "").replace(",", "").replace("rp", "").strip()
+    number_part = re.sub(r"[^\d]", "", text)
+    if not number_part:
+        return 0
+    if "ribu" in text or " rb" in text or text.endswith("rb") or " k" in text or text.endswith("k"):
+        return int(number_part) * 1_000
+    if "juta" in text or "jt" in text or "million" in text:
+        return int(number_part) * 1_000_000
+    return int(number_part)
 
 
 async def handle_set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Command: /setbudget <Category> <Limit>"""
+    """Command: /setbudget <Category> <Limit>."""
     args = list(context.args)
-
-    # Support for "/set budget ..." alias
-    if args and args[0].lower() == 'budget':
+    if args and args[0].lower() == "budget":
         args.pop(0)
 
     if len(args) < 2:
@@ -59,60 +41,60 @@ async def handle_set_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/setbudget Food 1000000`\n"
             "• `/setbudget Transport 240 ribu`\n"
             "• `/setbudget Shopping 2 juta`",
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
         return
 
     category = args[0]
-    limit_text = ' '.join(args[1:])
-
-    try:
-        limit = _parse_indonesian_currency(limit_text)
-        if limit <= 0:
-            raise ValueError("Invalid amount")
-    except (ValueError, IndexError):
+    limit = _parse_indonesian_currency(" ".join(args[1:]))
+    if limit <= 0:
         await update.message.reply_text("❌ Format limit tidak valid.")
         return
 
     if budget_service.set_budget(category, limit):
-        limit_str = "{:,.0f}".format(limit).replace(',', '.')
+        limit_str = f"{limit:,.0f}".replace(",", ".")
         await update.message.reply_text(
             f"✅ Budget **{category}** di-set: Rp{limit_str}/bulan",
-            parse_mode='Markdown',
+            parse_mode="Markdown",
         )
     else:
         await update.message.reply_text("❌ Gagal set budget.")
 
 
 async def handle_budgets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Command: /budgets - Show all budgets with Top Up option."""
-    budgets = budget_service.get_budgets()
-    if not budgets:
+    """Command: /budgets - show fixed limits and current usage."""
+    statuses = budget_service.get_budget_statuses()
+    if not statuses:
         await update.message.reply_text("Belum ada budget yang diatur.")
         return
 
-    msg = "💰 **Daftar Budget Bulanan**\n\n"
-    for cat, limit in budgets.items():
-        limit_str = "{:,.0f}".format(limit).replace(',', '.')
-        msg += f"▫️ {cat.capitalize()}: Rp {limit_str}\n"
+    msg = "💰 **Budget Bulan Ini**\n\n"
+    for category, status in statuses.items():
+        used = f"{status['used']:,.0f}".replace(",", ".")
+        limit = f"{status['limit']:,.0f}".replace(",", ".")
+        remaining = f"{status['remaining']:,.0f}".replace(",", ".")
+        msg += (
+            f"▫️ **{category.capitalize()}**\n"
+            f"Rp {used} / Rp {limit} · {status['percentage']:g}%\n"
+            f"Sisa Rp {remaining}\n\n"
+        )
 
     keyboard = [
-        [InlineKeyboardButton("➕ Top Up Budget", callback_data='budget_topup_list')],
-        [InlineKeyboardButton("🗑️ Hapus Budget", callback_data='budget_delete_list')],
+        [InlineKeyboardButton("➕ Top Up Budget", callback_data="budget_topup_list")],
+        [InlineKeyboardButton("🗑️ Hapus Budget", callback_data="budget_delete_list")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
+    await update.message.reply_text(
+        msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def handle_delete_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Command: /deletebudget <Category>"""
-    args = context.args
-    if not args:
+    """Command: /deletebudget <Category>."""
+    if not context.args:
         await update.message.reply_text("ℹ️ Format: `/deletebudget <Kategori>`")
         return
 
-    category = args[0]
+    category = context.args[0]
     if budget_service.delete_budget(category):
         await update.message.reply_text(f"✅ Budget {category} dihapus.")
     else:
@@ -120,56 +102,37 @@ async def handle_delete_budget(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def check_budget_warning_job(context: ContextTypes.DEFAULT_TYPE):
-    """Scheduled Job: Check if monthly spending exceeds budget threshold."""
-    user_id = str(Config.ADMIN_ID)
-
-    budgets = budget_service.get_budgets()
-    if not budgets:
+    """Send each crossed 80/100% threshold at most once per category/month."""
+    alerts = budget_service.get_pending_alerts()
+    if not alerts:
         return
 
-    # Get this month's transactions from Supabase
-    today = datetime.now()
-    month_start = today.strftime("%Y-%m-01")
-    month_end = today.strftime("%Y-%m-%d")
-
-    all_txs = db.get_transactions_by_date(user_id, month_start, month_end)
-
-    # Tally spending per category
-    current_spending = {}
-    for t in all_txs:
-        cat = str(t.get("category", "")).lower()
-        amt = int(t.get("amount", 0))
-        if cat in budgets:
-            current_spending[cat] = current_spending.get(cat, 0) + amt
-
-    # Check thresholds
     warnings = []
-    for cat, remaining_limit in budgets.items():
-        spent = current_spending.get(cat, 0)
-        original_budget = spent + remaining_limit
+    for alert in alerts:
+        used = f"{alert['used']:,.0f}".replace(",", ".")
+        limit = f"{alert['limit']:,.0f}".replace(",", ".")
+        warnings.append(
+            f"⚠️ **{alert['category'].capitalize()}**: {alert['percentage']:g}% "
+            f"(Rp {used} / Rp {limit})"
+        )
 
-        if original_budget > 0:
-            percentage = spent / original_budget
-        else:
-            percentage = 0
+    try:
+        await context.bot.send_message(
+            chat_id=Config.ADMIN_ID,
+            text="🚨 **Budget Alert**\n\n" + "\n".join(warnings),
+            parse_mode="Markdown",
+        )
+    except Exception as error:
+        logger.error("Failed to send budget warning: %s", error)
+        return
 
-        if percentage >= goals_config.BUDGET_WARNING_THRESHOLD:
-            pct_str = int(percentage * 100)
-            spent_fmt = "{:,.0f}".format(spent).replace(',', '.')
-            total_fmt = "{:,.0f}".format(original_budget).replace(',', '.')
-            warnings.append(
-                f"⚠️ **{cat.capitalize()}**: {pct_str}% "
-                f"(Rp {spent_fmt} / Rp {total_fmt})"
-            )
-
-    if warnings:
-        msg = f"🚨 **Budget Alert ({today.strftime('%B')})**\n\n"
-        msg += "\n".join(warnings)
-        msg += "\n\nHati-hati ya bos penggunaannya! 💸"
-
-        try:
-            await context.bot.send_message(
-                chat_id=Config.ADMIN_ID, text=msg, parse_mode='Markdown'
-            )
-        except Exception as e:
-            logger.error(f"Failed to send budget warning: {e}")
+    if not budget_service.mark_alerts_sent(alerts):
+        logger.error("Failed to persist budget alert state")
+        return
+    for alert in alerts:
+        log_event(
+            "budget_threshold_reached",
+            Config.ADMIN_ID,
+            category=alert["category"],
+            threshold=alert["threshold"],
+        )

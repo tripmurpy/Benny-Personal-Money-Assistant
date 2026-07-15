@@ -23,6 +23,8 @@ from services.budget_handlers import handle_budgets
 from services.budget_service import BudgetService
 from services.chat_service import get_chat_service
 from services.expense_query_service import get_expense_query_service
+from services.history_service import HistoryService
+from services.event_logger import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +60,8 @@ class TelegramService:
         self.budget_service = BudgetService()
         self.chat_service = get_chat_service()
         self.expense_query = get_expense_query_service()
-        self.pending_expenses = {}  # user_id -> transactions
-        self.pending_inputs = {}    # user_id -> text for incomplete transactions
-        self.pending_income = {}    # user_id -> transactions for income tagging
+        self.history_service = HistoryService(self.db)
         self.pending_query_data = {}  # user_id -> (transactions, label) for detail button
-        self.pending_modification = {} # user_id -> modification_data
-        self.pending_confirmation = {} # user_id -> { "source": str, "transactions": list }
         logger.info("✅ Benny siap! (Text, OCR, Voice, AI Coaching)")
 
     def _user_id(self, update: Update) -> str:
@@ -71,186 +69,29 @@ class TelegramService:
         return str(update.effective_user.id)
 
     def _main_keyboard(self):
-        """Return the main bot keyboard after successful login."""
+        """Return the private mode main keyboard."""
         keyboard = [
-            [KeyboardButton("💵 Saldo"), KeyboardButton("📊 Laporan")],
-            [KeyboardButton("🧠 Coaching"), KeyboardButton("📄 Export PDF")],
-            [KeyboardButton("🎯 Goals"), KeyboardButton("💰 Budgets"), KeyboardButton("📈 Trend")]
+            [KeyboardButton("Ringkasan"), KeyboardButton("Riwayat")],
+            [KeyboardButton("Budget"), KeyboardButton("Goals")],
         ]
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Entry point: reset auth state and show secure login prompt.
-        """
-        # Reset auth for every /start
-        auth_svc.init_auth(context.user_data)
-
+        """Welcome the configured private user without a second login."""
+        if not auth_svc.is_allowed(update.effective_user.id):
+            return
         await update.message.reply_text(
-            auth_svc.WELCOME_MSG,
-            parse_mode="Markdown"
+            "Selamat datang di Benny. Catat transaksi dengan pesan seperti: makan siang 25 ribu.",
+            reply_markup=self._main_keyboard(),
         )
-
-    async def _handle_auth_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """
-        Auth + Onboarding state machine.
-        Called by handle_message() when user is not yet AUTHENTICATED.
-        """
-        uid       = self._user_id(update)
-        ud        = context.user_data
-        state     = auth_svc.get_state(ud)
-        text      = (update.message.text or "").strip()
-        chat_id   = update.effective_chat.id
-
-        # Guard: only accept text messages during auth/onboarding
-        if not text:
-            await update.message.reply_text(
-                "🔐 Sedang dalam proses login. Tolong ketik teks ya!"
-            )
-            return
-
-        # ── STEP 1: Receive Username ─────────────────────────────────────────
-        if state == auth_svc.STATE_WAITING_USERNAME:
-            ud["auth_temp"]["username"] = text
-            ud["auth_state"] = auth_svc.STATE_WAITING_PASSWORD
-            await update.message.reply_text(auth_svc.ASK_PASSWORD_MSG, parse_mode="Markdown")
-            return
-
-        # ── STEP 2: Receive Password & Verify ────────────────────────────────
-        if state == auth_svc.STATE_WAITING_PASSWORD:
-            username = ud["auth_temp"].get("username", "")
-            ok = auth_svc.verify_credentials(username, text)
-
-            if not ok:
-                ud["auth_attempts"] = ud.get("auth_attempts", 0) + 1
-                attempt = ud["auth_attempts"]
-
-                if attempt >= auth_svc.MAX_ATTEMPTS:
-                    ud["auth_state"] = "LOCKED"
-                    await update.message.reply_text(auth_svc.LOCKED_MSG, parse_mode="Markdown")
-                else:
-                    # Reset to username step
-                    ud["auth_state"] = auth_svc.STATE_WAITING_USERNAME
-                    ud["auth_temp"] = {}
-                    await update.message.reply_text(
-                        auth_svc.WRONG_CREDS_MSG.format(
-                            attempt=attempt,
-                            max=auth_svc.MAX_ATTEMPTS
-                        ),
-                        parse_mode="Markdown"
-                    )
-                return
-
-            # ✅ Credentials OK — check if profile exists
-            profile = self.db.get_user(uid)
-            has_profile = bool(
-                profile
-                and profile.get("full_name")
-                and profile.get("nickname")
-            )
-
-            # Register basic user info
-            self.db.upsert_user(uid, {
-                "username": update.effective_user.username or "",
-                "first_name": update.effective_user.first_name or "",
-            })
-
-            if has_profile:
-                # Returning user — show profile summary
-                ud["auth_state"] = auth_svc.STATE_PROFILE_REVIEW
-                msg = auth_svc.LOGIN_SUCCESS_RETURNING_MSG.format(
-                    full_name=profile.get("full_name", "-"),
-                    nickname=profile.get("nickname", "-"),
-                    birthday=profile.get("birthday", "-"),
-                )
-                await update.message.reply_text(msg, parse_mode="Markdown")
-            else:
-                # New user — start onboarding
-                ud["auth_state"] = auth_svc.STATE_ONBOARDING_NAME
-                await update.message.reply_text(
-                    auth_svc.LOGIN_SUCCESS_NEW_MSG, parse_mode="Markdown"
-                )
-            return
-
-        # ── STEP 3: Profile Review (returning user) ──────────────────────────
-        if state == auth_svc.STATE_PROFILE_REVIEW:
-            if text.lower() in ["ya", "y", "iya", "yes", "update"]:
-                ud["auth_state"] = auth_svc.STATE_ONBOARDING_NAME
-                await update.message.reply_text(
-                    "📝 Oke! Siapa *nama lengkap* kamu?", parse_mode="Markdown"
-                )
-            else:
-                # User doesn't want to update — go straight to bot
-                auth_svc.set_authenticated(ud)
-                profile = self.db.get_user(uid)
-                nickname = profile.get("nickname", update.effective_user.first_name) if profile else update.effective_user.first_name
-                await update.message.reply_text(
-                    f"Sip! Selamat datang kembali, *{nickname}*! 💙\nAda yang mau dicatat hari ini? 💰",
-                    reply_markup=self._main_keyboard(),
-                    parse_mode="Markdown"
-                )
-            return
-
-        # ── STEP 4: Onboarding — Full Name ───────────────────────────────────
-        if state == auth_svc.STATE_ONBOARDING_NAME:
-            ud["auth_temp"]["full_name"] = text
-            ud["auth_state"] = auth_svc.STATE_ONBOARDING_NICKNAME
-            await update.message.reply_text(
-                auth_svc.ASK_NICKNAME_MSG.format(name=text),
-                parse_mode="Markdown"
-            )
-            return
-
-        # ── STEP 5: Onboarding — Nickname ────────────────────────────────────
-        if state == auth_svc.STATE_ONBOARDING_NICKNAME:
-            ud["auth_temp"]["nickname"] = text
-            ud["auth_state"] = auth_svc.STATE_ONBOARDING_BIRTHDAY
-            await update.message.reply_text(
-                auth_svc.ASK_BIRTHDAY_MSG.format(nickname=text),
-                parse_mode="Markdown"
-            )
-            return
-
-        # ── STEP 6: Onboarding — Birthday → Save & Done ──────────────────────
-        if state == auth_svc.STATE_ONBOARDING_BIRTHDAY:
-            full_name = ud["auth_temp"].get("full_name", "")
-            nickname  = ud["auth_temp"].get("nickname", "")
-            birthday  = text
-
-            self.db.save_user_profile(uid, full_name, nickname, birthday)
-            auth_svc.set_authenticated(ud)
-
-            await update.message.reply_text(
-                auth_svc.PROFILE_SAVED_MSG.format(
-                    full_name=full_name,
-                    nickname=nickname,
-                    birthday=birthday,
-                ),
-                reply_markup=self._main_keyboard(),
-                parse_mode="Markdown"
-            )
-            return
-
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """ROUTER UTAMA: Menangani TEKS, FOTO, dan SUARA."""
         chat_id = update.effective_chat.id
         user_id = update.effective_user.id
         uid = str(user_id)
-        if str(chat_id) != str(Config.ADMIN_ID):
+        if not auth_svc.is_allowed(user_id):
             return
 
         self.last_activity = datetime.now()
-
-        # ── Auth Gate: route to auth flow if not authenticated ────────────────
-        if not auth_svc.is_authenticated(context.user_data):
-            state = auth_svc.get_state(context.user_data)
-            if state == "LOCKED":
-                await update.message.reply_text(
-                    "🚫 Sesi terkunci. Ketik /start untuk mencoba kembali."
-                )
-                return
-            await self._handle_auth_flow(update, context)
-            return
 
         # Ensure user profile exists before processing any transactions
         self.db.upsert_user(uid, {
@@ -278,24 +119,124 @@ class TelegramService:
 
         if user_text:
             # Menu button handlers
-            if user_text == "🧠 Coaching":
-                await self.handle_coaching_report(update, context)
-            elif user_text == "📊 Laporan":
-                await self.handle_laporan_menu(update, context)
-            elif user_text == "📄 Export PDF":
-                await self.handle_export_pdf(update, context)
-            elif user_text == "📈 Trend":
-                await self.handle_trend_chart(update, context)
-            elif user_text == "🎯 Goals":
+            if user_text == "Ringkasan":
+                await self.handle_summary(update, context)
+            elif user_text == "Riwayat":
+                await self.handle_history(update, context)
+            elif user_text == "Goals":
                 await handle_goals(update, context)
-            elif user_text == "💰 Budgets":
+            elif user_text == "Budget":
                 await handle_budgets(update, context)
-            elif user_text == "💵 Saldo":
-                await self.handle_saldo(update, context)
             else:
+                pending_goal = context.user_data.pop("goal_action", None)
+                if pending_goal:
+                    from services.budget_handlers import _parse_indonesian_currency
+
+                    amount = _parse_indonesian_currency(user_text)
+                    if amount <= 0:
+                        await update.message.reply_text("Nominal belum valid.")
+                        return
+                    goal = (
+                        self.db.contribute_goal(uid, pending_goal["goal_id"], amount)
+                        if pending_goal["action"] == "contribute"
+                        else self.db.withdraw_goal(uid, pending_goal["goal_id"], amount)
+                    )
+                    if not goal:
+                        await update.message.reply_text(
+                            "Perubahan goal gagal. Periksa nominal dan saldo goal."
+                        )
+                        return
+                    saved = f"{int(goal.get('current_amount', 0)):,.0f}".replace(",", ".")
+                    target = f"{int(goal.get('target_amount', 0)):,.0f}".replace(",", ".")
+                    await update.message.reply_text(
+                        f"Goal {goal.get('name', '')}\nRp{saved} / Rp{target}"
+                    )
+                    return
+
+                if update.message.reply_to_message:
+                    markup = update.message.reply_to_message.reply_markup
+                    if markup:
+                        callbacks = [
+                            button.callback_data
+                            for row in markup.inline_keyboard
+                            for button in row
+                            if button.callback_data and button.callback_data.startswith("edit_capture:")
+                        ]
+                        if callbacks:
+                            _, table_code, record_id = callbacks[0].split(":", 2)
+                            table = "income" if table_code == "i" else "transactions"
+                            original = self.db.get_record(uid, table, record_id)
+                            if original:
+                                context.user_data["edit_capture"] = {
+                                    "table": table,
+                                    "record_id": record_id,
+                                    "original": original,
+                                }
+
+                pending_edit = context.user_data.pop("edit_capture", None)
+                if pending_edit:
+                    from services.budget_handlers import _parse_indonesian_currency
+
+                    original = pending_edit["original"]
+                    if self._is_transaction_input(user_text):
+                        transactions = await self.ai_service.parse_expense(user_text)
+                        if len(transactions) != 1:
+                            await update.message.reply_text(
+                                "Kirim satu transaksi lengkap, contoh: makan siang 20 ribu."
+                            )
+                            return
+                        transaction = transactions[0]
+                        amount = int(transaction.get("amount", 0))
+                        item = transaction.get("item", "")
+                        category = transaction.get("category")
+                    else:
+                        transaction = {}
+                        amount = _parse_indonesian_currency(user_text)
+                        item = original.get("source", original.get("item_name", ""))
+                        category = original.get("category")
+
+                    if amount <= 0 or not item:
+                        await update.message.reply_text("Item atau nominal belum valid.")
+                        return
+
+                    if pending_edit["table"] == "income":
+                        new_data = {
+                            "source": item,
+                            "category": category or "Income",
+                            "amount": amount,
+                            "date": transaction.get("date") or original.get("date"),
+                            "time": transaction.get("time") or original.get("time"),
+                        }
+                    else:
+                        new_data = {
+                            "item_name": item,
+                            "category": category or "Other",
+                            "amount": amount,
+                            "date": transaction.get("date") or original.get("date"),
+                            "time": transaction.get("time") or original.get("time"),
+                            "location": transaction.get("location", original.get("location", "")),
+                        }
+
+                    context.user_data["pending_modification"] = {
+                        "target_id": pending_edit["record_id"],
+                        "action": "update",
+                        "new_data": new_data,
+                        "table": pending_edit["table"],
+                        "original": original,
+                    }
+                    old_amount = int(pending_edit["original"].get("amount", 0))
+                    await update.message.reply_text(
+                        f"Konfirmasi perubahan\n\nRp{old_amount:,.0f} → Rp{amount:,.0f}".replace(",", "."),
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("Konfirmasi", callback_data="confirm_mod_yes"),
+                            InlineKeyboardButton("Batal", callback_data="confirm_mod_no"),
+                        ]]),
+                    )
+                    return
+
                 # 0. Reply-to-Bot = always contextual AI chat
                 if reply_context:
-                    self.pending_inputs.pop(user_id, None)
+                    context.user_data.pop("pending_input", None)
                     status_msg = await update.message.reply_text("💭 ...")
                     response = await self.ai_service.chat_with_user(
                         user_text=user_text,
@@ -320,9 +261,7 @@ class TelegramService:
                         is_pure_chat = True
 
                 if is_pure_chat:
-                    self.pending_inputs.pop(user_id, None)
-                    self.pending_expenses.pop(user_id, None)
-                    self.pending_income.pop(user_id, None)
+                    context.user_data.pop("pending_input", None)
                     from services.budget_handlers import pending_topup
                     pending_topup.pop(user_id, None)
 
@@ -358,8 +297,8 @@ class TelegramService:
                     return
 
                 # Check for pending input (Smart Follow-up)
-                if user_id in self.pending_inputs:
-                    previous_text = self.pending_inputs.pop(user_id)
+                previous_text = context.user_data.pop("pending_input", None)
+                if previous_text:
                     user_text = f"{previous_text} {user_text}"
                     await update.message.reply_text(f'👌 Oke, digabung: "{user_text}"')
 
@@ -437,7 +376,7 @@ class TelegramService:
                             "original": orig_tx,
                             "new_data": mod_result.get("new_data", {})
                         }
-                        self.pending_modification[user_id] = mod_data
+                        context.user_data["pending_modification"] = mod_data
                         
                         # Render confirmation
                         date_str = orig_tx.get('date', '')
@@ -479,6 +418,7 @@ class TelegramService:
 
                 # Transaction detection
                 if self._is_transaction_input(user_text):
+                    log_event("capture_received", uid, source="text")
                     status_msg = await update.message.reply_text("⏳ Mencatat transaksi...")
                     try:
                         transactions = await self.ai_service.parse_expense(user_text)
@@ -490,50 +430,18 @@ class TelegramService:
                             )
                             return
 
-                        # Check for Income
-                        has_income = any(
-                            str(t.get('category', '')).lower() in ['income', 'pemasukan', 'gaji']
-                            for t in transactions
-                        )
-
-                        if has_income:
-                            self.pending_income[user_id] = transactions
-                            keyboard = [
-                                [InlineKeyboardButton(" PRIMER (Wajib/Utama)", callback_data='income_primer')],
-                                [InlineKeyboardButton(" SEKUNDER (Tambahan)", callback_data='income_sekunder')]
-                            ]
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-                            await context.bot.edit_message_text(
-                                chat_id=chat_id, message_id=status_msg.message_id,
-                                text="💰 **Mendapat Pemasukan!**\n\nIni termasuk jenis apa?",
-                                reply_markup=reply_markup, parse_mode='Markdown'
+                        operation_id = f"{uid}:{update.message.message_id}"
+                        if len(transactions) > 1:
+                            await self._ask_confirmation(
+                                update, context, transactions, status_msg.message_id, "Teks"
                             )
                         else:
-                            self.pending_expenses[user_id] = transactions
-
-                            if transactions:
-                                first_cat = transactions[0].get('category', '').lower()
-                            else:
-                                first_cat = 'other'
-                                
-                            budgets = self.budget_service.get_budgets()
-
-                            keyboard = [[InlineKeyboardButton("💳 Saldo (Umum)", callback_data='src_saldo')]]
-
-                            if first_cat in budgets:
-                                keyboard.append([InlineKeyboardButton(
-                                    f"📂 Budget: {first_cat.capitalize()}",
-                                    callback_data=f'src_budget_select_{first_cat}'
-                                )])
-                                keyboard.append([InlineKeyboardButton("📂 Budget Lain...", callback_data='src_budget_list')])
-                            else:
-                                keyboard.append([InlineKeyboardButton("💰 Pakai Budget...", callback_data='src_budget_list')])
-
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-                            await context.bot.edit_message_text(
-                                chat_id=chat_id, message_id=status_msg.message_id,
-                                text="💸 **Pengeluaran via apa?**",
-                                reply_markup=reply_markup, parse_mode='Markdown'
+                            await self._save_and_reply(
+                                update,
+                                context,
+                                transactions,
+                                status_msg.message_id,
+                                operation_id,
                             )
                     except Exception as e:
                         logging.error(f"Error Text: {e}")
@@ -544,7 +452,8 @@ class TelegramService:
 
                 # Incomplete Transaction detection
                 if self._is_incomplete_transaction(user_text):
-                    self.pending_inputs[user_id] = user_text
+                    log_event("capture_needs_clarification", uid, field="amount")
+                    context.user_data["pending_input"] = user_text
                     await update.message.reply_text(
                         f'🤔 "{user_text}"... Nominalnya berapa?\n'
                         "Ketik angkanya aja, nanti aku gabungin! 😉"
@@ -640,9 +549,10 @@ class TelegramService:
             )
             return
 
-        self.pending_confirmation[uid] = {
+        context.user_data["pending_confirmation"] = {
             "source": source,
-            "transactions": transactions
+            "transactions": transactions,
+            "operation_id": f"{uid}:{update.effective_message.message_id}",
         }
 
         msg_text = f"📝 **Review Hasil {source}:**\n\n"
@@ -889,10 +799,13 @@ class TelegramService:
 
     # ─── SAVE & REPLY ───────────────────────────────────────
 
-    async def _save_and_reply(self, update, context, transactions, message_id):
-        """Save transactions to Supabase and reply with Benny's personality."""
+    async def _save_and_reply(
+        self, update, context, transactions, message_id, operation_id=None
+    ):
+        """Save one transaction type and render a database-confirmed receipt."""
         chat_id = update.effective_chat.id
         uid = self._user_id(update)
+        operation_id = operation_id or f"{uid}:{update.effective_message.message_id}"
 
         if not transactions:
             await context.bot.edit_message_text(
@@ -901,14 +814,22 @@ class TelegramService:
             )
             return
 
-        # Route income vs expense
-        is_income_batch = any(
+        income_flags = [
             str(t.get('category', '')).lower() in ['income', 'pemasukan', 'gaji']
             for t in transactions
-        )
+        ]
+        if any(income_flags) and not all(income_flags):
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="Belum tersimpan\n\nPisahkan pemasukan dan pengeluaran ke pesan berbeda.",
+            )
+            return
+
+        is_income_batch = all(income_flags)
 
         if is_income_batch:
-            success = self.db.add_income(uid, [
+            result = self.db.add_income(uid, [
                 {
                     "source": t.get("item", ""),
                     "category": t.get("category", "Income"),
@@ -917,24 +838,31 @@ class TelegramService:
                     "time": t.get("time", ""),
                     "notes": t.get("notes", ""),
                 } for t in transactions
-            ])
+            ], operation_id)
+            table_code = "i"
         else:
-            success = self.db.add_transactions_bulk(uid, transactions)
+            result = self.db.add_transactions_bulk(uid, transactions, operation_id)
+            table_code = "e"
 
-        if not success:
+        if not result["ok"]:
+            log_event("capture_failed", uid, reason=result["error"])
+            context.user_data["retry_capture"] = {
+                "transactions": transactions,
+                "operation_id": operation_id,
+            }
             await context.bot.edit_message_text(
-                chat_id=chat_id, message_id=message_id, text="❌ Gagal simpan ke database."
+                chat_id=chat_id,
+                message_id=message_id,
+                text="Belum tersimpan\n\nKoneksi sedang bermasalah. Datamu belum masuk.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Coba Lagi", callback_data="retry_capture")
+                ]]),
             )
             return
 
-        # Build personality reply
-        first_trans = transactions[0]
-        personality_msg = self.personality.get_transaction_response(
-            first_trans.get('amount', 0),
-            first_trans.get('category', 'Other')
-        )
-
-        reply_text = f"{personality_msg}\n\n"
+        context.user_data.pop("retry_capture", None)
+        log_event("capture_saved", uid, count=len(result["records"]))
+        reply_text = "Tersimpan\n\n"
 
         total_income_now = 0
         total_expense_now = 0
@@ -949,49 +877,85 @@ class TelegramService:
 
             if is_income:
                 total_income_now += amount
-                item_line = f"💵 {item}"
-                detail_line = f"📂 {category} | 💰 +Rp{amt_str}"
+                item_line = item
+                detail_line = f"{category} · +Rp{amt_str}"
             else:
                 total_expense_now += amount
-                item_line = f"🛒 {item}"
-                detail_line = f"📂 {category} | 💸 -Rp{amt_str}"
+                item_line = item
+                detail_line = f"{category} · Rp{amt_str}"
 
             reply_text += f"{item_line}\n{detail_line}\n\n"
 
-        # Check balance
-        try:
-            _, _, current_balance = self._calculate_balance(uid)
-            if current_balance < 0:
-                pass
-        except:
-            pass
-
-        # Short Summary
-        reply_text += "━━━━━━━━━━━━━━━━━━━━\n"
+        reply_text += "────────────\n"
         if total_income_now > 0:
-            reply_text += f"➕ PEMASUKAN : Rp {total_income_now:,.0f}".replace(',', '.') + "\n"
+            reply_text += f"Pemasukan Rp{total_income_now:,.0f}".replace(',', '.') + "\n"
         if total_expense_now > 0:
-            reply_text += f"➖ PENGELUARAN : Rp {total_expense_now:,.0f}".replace(',', '.') + "\n"
+            reply_text += f"Pengeluaran Rp{total_expense_now:,.0f}".replace(',', '.') + "\n"
 
-            first_cat = transactions[0].get('category', '').lower()
-            budgets = self.budget_service.get_budgets()
-            if first_cat in budgets:
-                remaining = budgets[first_cat]
-                reply_text += f"💰 SALDO {first_cat.upper()} : Rp {remaining:,.0f}".replace(',', '.') + "\n"
-                if remaining <= 0:
-                    pass
-
-        if total_income_now > 0:
-            reply_text += "\n_Nice! Pemasukan masuk, semangat terus! 🔥_"
-        else:
-            reply_text += "\n_Tenang, kamu pasti bisa balance lagi!_ 💪"
+        first_record = result["records"][0]
+        edit_callback = f"edit_capture:{table_code}:{first_record.get('id', '')}"
+        keyboard = [
+            [InlineKeyboardButton(
+                "Batalkan", callback_data=f"undo_capture:{table_code}:{operation_id}"
+            )],
+            [InlineKeyboardButton("Edit", callback_data=edit_callback)],
+        ]
 
         await context.bot.edit_message_text(
             chat_id=chat_id, message_id=message_id,
-            text=reply_text, parse_mode='Markdown'
+            text=reply_text, reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     # ─── MENUS & REPORTS ────────────────────────────────────
+
+    async def handle_summary(self, update, context):
+        """Show deterministic current-month income, expense, and cash flow."""
+        uid = self._user_id(update)
+        today = datetime.now()
+        start = today.strftime("%Y-%m-01")
+        end = today.strftime("%Y-%m-%d")
+        month_names = (
+            "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+            "Juli", "Agustus", "September", "Oktober", "November", "Desember",
+        )
+        label = f"{month_names[today.month - 1]} {today.year}"
+        summary = self.analytics_service.get_unified_summary(
+            self.db.get_transactions_by_date(uid, start, end),
+            self.db.get_income(uid),
+            start,
+            end,
+            label,
+        )
+        log_event("summary_viewed", uid, period=start[:7])
+        await update.message.reply_text(
+            self.analytics_service.format_unified_summary_message(summary),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Detail", callback_data="laporan_bulanan"),
+                InlineKeyboardButton("Trend", callback_data="summary_trend"),
+                InlineKeyboardButton("PDF", callback_data="summary_pdf"),
+            ]]),
+        )
+
+    async def handle_history(self, update, context):
+        """Show recent income and expenses without an AI call."""
+        rows = self.history_service.recent(self._user_id(update), limit=10)
+        if not rows:
+            await update.message.reply_text("Belum ada transaksi.")
+            return
+
+        keyboard = []
+        for row in rows:
+            sign = "+" if row["type"] == "income" else "-"
+            amount = f"{int(row.get('amount', 0)):,.0f}".replace(",", ".")
+            table_code = "i" if row["table"] == "income" else "e"
+            keyboard.append([InlineKeyboardButton(
+                f"{row['item']} · {sign}Rp{amount}",
+                callback_data=f"history:{table_code}:{row['id']}",
+            )])
+
+        await update.message.reply_text(
+            "Riwayat Terakhir", reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     async def handle_laporan_menu(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Show friendly greeting with report period options"""
@@ -1013,7 +977,7 @@ class TelegramService:
         query = update.callback_query
         uid = str(update.effective_user.id)
 
-        if str(update.effective_user.id) != str(Config.ADMIN_ID):
+        if not auth_svc.is_allowed(update.effective_user.id):
             await query.answer("⛔ Akses ditolak. Bot ini privat.", show_alert=True)
             return
 
@@ -1027,14 +991,49 @@ class TelegramService:
             await self._send_report_to_callback(query, context, period_type, uid)
             return
 
+        if action == "summary_trend":
+            await self.handle_trend_chart(update, context)
+            return
+
+        if action == "summary_pdf":
+            await self.handle_export_pdf(update, context)
+            return
+
+        if action.startswith("goal_add:") or action.startswith("goal_withdraw:"):
+            operation, goal_id = action.split(":", 1)
+            context.user_data["goal_action"] = {
+                "action": "contribute" if operation == "goal_add" else "withdraw",
+                "goal_id": int(goal_id),
+            }
+            await query.edit_message_text("Nominalnya berapa?")
+            return
+
+        if action.startswith("goal_history:"):
+            goal_id = int(action.split(":", 1)[1])
+            history = self.db.get_goal_history(uid, goal_id)
+            if not history:
+                await query.edit_message_text("Belum ada riwayat goal.")
+                return
+            lines = ["Riwayat Goal", ""]
+            labels = {"created": "Dibuat", "contribute": "Tambah", "withdraw": "Ambil", "cancelled": "Dibatalkan"}
+            for entry in history:
+                delta = int(entry.get("amount_delta", 0))
+                balance = int(entry.get("balance_after", 0))
+                lines.append(
+                    f"{labels.get(entry.get('action'), entry.get('action', ''))} "
+                    f"{delta:+,} · Rp{balance:,}".replace(",", ".")
+                )
+            await query.edit_message_text("\n".join(lines))
+            return
+
         # Handle transaction modification confirmation
         if action.startswith('confirm_mod_'):
             user_id = update.effective_user.id
-            if user_id not in self.pending_modification:
+            if "pending_modification" not in context.user_data:
                 await query.edit_message_text("⚠️ Sesi kadaluarsa. Silakan ulangi perintah ubah/hapus.")
                 return
 
-            mod_data = self.pending_modification.pop(user_id)
+            mod_data = context.user_data.pop("pending_modification")
             
             if action == 'confirm_mod_no':
                 await query.edit_message_text("❌ Aksi dibatalkan.")
@@ -1047,7 +1046,7 @@ class TelegramService:
                     mod_action = mod_data["action"]
                     
                     if mod_action == "delete":
-                        success = self.db.delete_transaction(target_id)
+                        success = self.db.delete_transaction(uid, target_id)
                         if success:
                             await query.edit_message_text("✅ Transaksi berhasil **dihapus**!", parse_mode='Markdown')
                         else:
@@ -1055,8 +1054,16 @@ class TelegramService:
                             
                     elif mod_action == "update":
                         new_data = mod_data["new_data"]
-                        success = self.db.update_transaction(target_id, new_data)
+                        if mod_data.get("table") == "income":
+                            success = self.db.update_income(uid, target_id, new_data)
+                        else:
+                            success = self.db.update_transaction(uid, target_id, new_data)
                         if success:
+                            log_event(
+                                "transaction_edited",
+                                uid,
+                                table=mod_data.get("table", "transactions"),
+                            )
                             await query.edit_message_text("✅ Transaksi berhasil **diubah**!", parse_mode='Markdown')
                         else:
                             await query.edit_message_text("❌ Gagal mengubah transaksi.")
@@ -1068,28 +1075,153 @@ class TelegramService:
         # Handle Save Confirmation (OCR & Voice)
         if action.startswith('confirm_save_'):
             user_id = update.effective_user.id
-            if user_id not in self.pending_confirmation:
+            if "pending_confirmation" not in context.user_data:
                 await query.edit_message_text("⚠️ Sesi kadaluarsa. Silakan ulangi input.")
                 return
 
             if action == 'confirm_save_no':
-                self.pending_confirmation.pop(user_id)
+                context.user_data.pop("pending_confirmation")
                 await query.edit_message_text("❌ Aksi dibatalkan.")
                 return
                 
-            data = self.pending_confirmation.pop(user_id)
+            data = context.user_data.pop("pending_confirmation")
             transactions = data['transactions']
             
             if action == 'confirm_save_edit':
                 items = [t.get("item", t.get("item_name", "")) for t in transactions]
-                self.pending_inputs[user_id] = f"Dari hasil scan ({', '.join(items)}): "
+                context.user_data["pending_input"] = f"Dari hasil scan ({', '.join(items)}): "
                 await query.edit_message_text("✏️ Oke, ketik ulang transaksinya beserta nominal yang benar ya!")
                 return
                 
             if action == 'confirm_save_yes':
                 await query.edit_message_text("⏳ Menyimpan transaksi...")
-                await self._save_and_reply(update, context, transactions, query.message.message_id)
+                await self._save_and_reply(
+                    update,
+                    context,
+                    transactions,
+                    query.message.message_id,
+                    data["operation_id"],
+                )
                 return
+
+        if action == "retry_capture":
+            pending = context.user_data.get("retry_capture")
+            if not pending:
+                await query.edit_message_text("Sesi coba lagi sudah berakhir. Kirim transaksi kembali.")
+                return
+            await query.edit_message_text("Memproses ulang...")
+            await self._save_and_reply(
+                update,
+                context,
+                pending["transactions"],
+                query.message.message_id,
+                pending["operation_id"],
+            )
+            return
+
+        if action.startswith("undo_capture:"):
+            _, table_code, operation_id = action.split(":", 2)
+            table = "income" if table_code == "i" else "transactions"
+            if self.db.delete_operation(uid, table, operation_id):
+                log_event("capture_undone", uid, table=table)
+                await query.edit_message_text("Dibatalkan")
+            else:
+                await query.edit_message_text("Transaksi sudah dibatalkan atau tidak ditemukan.")
+            return
+
+        if action.startswith("edit_capture:"):
+            _, table_code, record_id = action.split(":", 2)
+            table = "income" if table_code == "i" else "transactions"
+            original = self.db.get_record(uid, table, record_id)
+            if not original:
+                await query.edit_message_text("Transaksi tidak ditemukan.")
+                return
+            context.user_data["edit_capture"] = {
+                "table": table,
+                "record_id": record_id,
+                "original": original,
+            }
+            await query.edit_message_text(
+                "Kirim ulang transaksi lengkap dengan nilai yang benar."
+            )
+            return
+
+        if action.startswith("history:"):
+            _, table_code, record_id = action.split(":", 2)
+            table = "income" if table_code == "i" else "transactions"
+            record = self.db.get_record(uid, table, record_id)
+            if not record:
+                await query.edit_message_text("Transaksi tidak ditemukan.")
+                return
+            item = record.get("source", record.get("item_name", ""))
+            amount = f"{int(record.get('amount', 0)):,.0f}".replace(",", ".")
+            await query.edit_message_text(
+                f"{item} · Rp{amount}\n{record.get('category', 'Other')} · {record.get('date', '')}",
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("Edit", callback_data=f"edit_capture:{table_code}:{record_id}"),
+                        InlineKeyboardButton("Hapus", callback_data=f"history_delete:{table_code}:{record_id}"),
+                    ],
+                    [InlineKeyboardButton("Catat Lagi", callback_data=f"history_repeat:{table_code}:{record_id}")],
+                ]),
+            )
+            return
+
+        if action.startswith("history_delete:"):
+            _, table_code, record_id = action.split(":", 2)
+            context.user_data["history_delete"] = (table_code, record_id)
+            await query.edit_message_text(
+                "Hapus transaksi ini?",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Hapus", callback_data="history_delete_confirm"),
+                    InlineKeyboardButton("Batal", callback_data="history_delete_cancel"),
+                ]]),
+            )
+            return
+
+        if action == "history_delete_cancel":
+            context.user_data.pop("history_delete", None)
+            await query.edit_message_text("Penghapusan dibatalkan.")
+            return
+
+        if action == "history_delete_confirm":
+            pending = context.user_data.pop("history_delete", None)
+            if not pending:
+                await query.edit_message_text("Sesi hapus sudah berakhir.")
+                return
+            table_code, record_id = pending
+            success = (
+                self.db.delete_income(uid, record_id)
+                if table_code == "i"
+                else self.db.delete_transaction(uid, record_id)
+            )
+            await query.edit_message_text("Dihapus" if success else "Transaksi tidak ditemukan.")
+            return
+
+        if action.startswith("history_repeat:"):
+            _, table_code, record_id = action.split(":", 2)
+            table = "income" if table_code == "i" else "transactions"
+            record = self.db.get_record(uid, table, record_id)
+            if not record:
+                await query.edit_message_text("Transaksi tidak ditemukan.")
+                return
+            transaction = {
+                "item": record.get("source", record.get("item_name", "")),
+                "category": record.get("category", "Income" if table_code == "i" else "Other"),
+                "amount": int(record.get("amount", 0)),
+                "date": datetime.now().date().isoformat(),
+                "time": datetime.now().strftime("%H:%M"),
+                "location": record.get("location", ""),
+            }
+            await query.edit_message_text("Mencatat ulang...")
+            await self._save_and_reply(
+                update,
+                context,
+                [transaction],
+                query.message.message_id,
+                f"{uid}:repeat:{query.message.message_id}:{record_id}",
+            )
+            return
 
         # Handle Expense Detail button
         if action == 'expense_detail':
@@ -1124,82 +1256,8 @@ class TelegramService:
                 await query.edit_message_text("⚠️ Data sudah kadaluarsa. Tanya lagi ya! 💙")
             return
 
-        # Handle Income Classification
-        if action.startswith('income_'):
-            user_id = update.effective_user.id
-            tag = "[Primer]" if action == 'income_primer' else "[Sekunder]"
-
-            if user_id in self.pending_income:
-                transactions = self.pending_income.pop(user_id)
-
-                for t in transactions:
-                    if str(t.get('category', '')).lower() in ['income', 'pemasukan', 'gaji']:
-                        original_item = t.get('item', 'Income')
-                        t['item'] = f"{original_item} {tag}"
-
-                await query.edit_message_text("💾 Menyimpan data...")
-                await self._save_and_reply(update, context, transactions, query.message.message_id)
-            else:
-                await query.edit_message_text("⚠️ Sesi kadaluarsa. Input ulang ya!")
-            return
-
-        # Handle Expense Source (Saldo vs Budget)
-        if action == 'src_saldo':
-            user_id = update.effective_user.id
-            if user_id in self.pending_expenses:
-                transactions = self.pending_expenses.pop(user_id)
-                await query.edit_message_text("💾 Menyimpan ke Saldo Utama...")
-                await self._save_and_reply(update, context, transactions, query.message.message_id)
-            else:
-                await query.edit_message_text("⚠️ Sesi kadaluarsa.")
-            return
-
-        if action == 'src_budget_list':
-            budgets = self.budget_service.get_budgets()
-            if not budgets:
-                await query.edit_message_text("⚠️ Belum ada budget! Gunakan /setbudget dulu.")
-                return
-
-            keyboard = []
-            row = []
-            for cat in budgets:
-                row.append(InlineKeyboardButton(f"📂 {cat.capitalize()}", callback_data=f'src_budget_select_{cat}'))
-                if len(row) == 2:
-                    keyboard.append(row)
-                    row = []
-            if row:
-                keyboard.append(row)
-
-            keyboard.append([InlineKeyboardButton("🔙 Batal (Pakai Saldo)", callback_data='src_saldo')])
-
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await query.edit_message_text("💰 **Pilih Budget:**", reply_markup=reply_markup, parse_mode='Markdown')
-            return
-
-        if action.startswith('src_budget_select_'):
-            user_id = update.effective_user.id
-            selected_budget = action.replace('src_budget_select_', '')
-
-            if user_id in self.pending_expenses:
-                transactions = self.pending_expenses.pop(user_id)
-
-                total_expense = sum(t.get('amount', 0) for t in transactions)
-                deducted, excess = self.budget_service.deduct_budget(selected_budget, total_expense)
-
-                for t in transactions:
-                    t['category'] = selected_budget
-
-                if excess > 0:
-                    deducted_str = "{:,.0f}".format(deducted).replace(',', '.')
-                    excess_str = "{:,.0f}".format(excess).replace(',', '.')
-                    msg = f"💾 Budget {selected_budget.capitalize()}: -Rp {deducted_str} (Habis!) + Saldo: -Rp {excess_str}"
-                    await query.edit_message_text(msg)
-                else:
-                    await query.edit_message_text(f"💾 Memotong budget {selected_budget.capitalize()}...")
-
-                await self._save_and_reply(update, context, transactions, query.message.message_id)
-            else:
-                await query.edit_message_text("⚠️ Sesi kadaluarsa.")
+        if action.startswith(('income_', 'src_')):
+            await query.edit_message_text("Flow lama sudah berakhir. Kirim transaksinya kembali.")
             return
 
         # Handle Top Up Budget Flow
@@ -1467,16 +1525,17 @@ class TelegramService:
     async def handle_export_pdf(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle Export PDF button — generate and send PDF report."""
         uid = self._user_id(update)
+        message = update.effective_message
 
         if not self.export_service.is_available():
-            await update.message.reply_text(
+            await message.reply_text(
                 "⚠️ PDF export belum tersedia.\n"
                 "Install: `pip install reportlab matplotlib`",
                 parse_mode='Markdown'
             )
             return
 
-        await update.message.reply_text("📄 Generating PDF report...")
+        await message.reply_text("📄 Generating PDF report...")
 
         try:
             today = datetime.now()
@@ -1497,22 +1556,23 @@ class TelegramService:
             )
 
             if pdf_bytes:
-                await update.message.reply_document(
+                await message.reply_document(
                     document=io.BytesIO(pdf_bytes),
                     filename=f"Laporan_Keuangan_{today.strftime('%Y_%m')}.pdf",
                     caption="📊 Laporan Keuangan Bulanan\nGenerated by Benny AI 🤖"
                 )
             else:
-                await update.message.reply_text("❌ Gagal membuat PDF. Coba lagi nanti.")
+                await message.reply_text("❌ Gagal membuat PDF. Coba lagi nanti.")
 
         except Exception as e:
             logging.error(f"Error generating PDF: {e}")
-            await update.message.reply_text("❌ Gagal menghasilkan PDF. Coba lagi nanti.")
+            await message.reply_text("❌ Gagal menghasilkan PDF. Coba lagi nanti.")
 
     async def handle_trend_chart(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle Trend button — show spending trend chart."""
         uid = self._user_id(update)
-        await update.message.reply_text("📈 Analyzing trends...")
+        response_message = update.effective_message
+        await response_message.reply_text("📈 Analyzing trends...")
 
         try:
             all_data = self.db.get_all_transactions(uid)
@@ -1535,8 +1595,8 @@ class TelegramService:
                 comp = dashboard['comparison']
                 message += f"📈 vs Periode Lalu: {comp['trend']} ({comp['change_percent']}%)"
 
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await response_message.reply_text(message, parse_mode='Markdown')
 
         except Exception as e:
             logging.error(f"Error generating trend: {e}")
-            await update.message.reply_text("❌ Gagal menghasilkan trend. Coba lagi nanti.")
+            await response_message.reply_text("❌ Gagal menghasilkan trend. Coba lagi nanti.")

@@ -27,6 +27,65 @@ class AnalyticsService:
             'Other': '#95A5A6'
         }
 
+    def get_unified_summary(
+        self,
+        expense_rows: List[Dict],
+        income_rows: List[Dict],
+        period_start: str,
+        period_end: str,
+        period_label: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Aggregate recorded income and expenses for an inclusive ISO-date period."""
+        start = datetime.strptime(period_start, '%Y-%m-%d').date()
+        end = datetime.strptime(period_end, '%Y-%m-%d').date()
+        if start > end:
+            raise ValueError("period_start must not be after period_end")
+
+        expenses = [
+            row for raw in (expense_rows or [])
+            if (row := self._normalize_row(raw)) and start <= row['date'] <= end
+        ]
+        incomes = [
+            row for raw in (income_rows or [])
+            if (row := self._normalize_row(raw)) and start <= row['date'] <= end
+        ]
+
+        category_totals = defaultdict(int)
+        for row in expenses:
+            category_totals[row['category']] += row['amount']
+        top_category = next(iter(sorted(category_totals.items(), key=lambda item: (-item[1], item[0].casefold()))), None)
+
+        total_income = sum(row['amount'] for row in incomes)
+        total_expense = sum(row['amount'] for row in expenses)
+        return {
+            'period': {
+                'start': period_start,
+                'end': period_end,
+                'label': period_label or f"{period_start} s.d. {period_end}",
+            },
+            'total_income': total_income,
+            'total_expense': total_expense,
+            'cash_flow': total_income - total_expense,
+            'top_expense_category': (
+                {'category': top_category[0], 'amount': top_category[1]}
+                if top_category else None
+            ),
+        }
+
+    def format_unified_summary_message(self, summary: Dict[str, Any]) -> str:
+        """Format a unified summary without implying a bank-account balance."""
+        lines = [
+            f"Ringkasan {summary['period']['label']}",
+            "",
+            f"Pemasukan      Rp{summary['total_income']:,}".replace(',', '.'),
+            f"Pengeluaran    Rp{summary['total_expense']:,}".replace(',', '.'),
+            f"Arus kas       Rp{summary['cash_flow']:,}".replace(',', '.'),
+        ]
+        top = summary.get('top_expense_category')
+        if top:
+            lines.extend(["", f"Terbesar: {top['category']} · Rp{top['amount']:,}".replace(',', '.')])
+        return "\n".join(lines)
+
     def get_dashboard_data(
         self,
         transactions: List[Dict],
@@ -266,7 +325,9 @@ class AnalyticsService:
         import re
         amount = (
             transaction.get('EXPENSE') or
+            transaction.get('INCOME') or
             transaction.get('AMOUNTH(IDR)') or
+            transaction.get('AMOUNT') or
             transaction.get('amount') or
             transaction.get('Amount (IDR)') or
             0
@@ -277,6 +338,21 @@ class AnalyticsService:
             return int(clean) if clean else 0
 
         return int(amount) if amount else 0
+
+    def _normalize_row(self, row: Dict) -> Optional[Dict[str, Any]]:
+        """Normalize current Supabase and legacy uppercase transaction rows."""
+        try:
+            row_date = datetime.strptime(str(row.get('date') or row.get('DATE') or '')[:10], '%Y-%m-%d').date()
+            amount = self._extract_amount(row)
+        except (TypeError, ValueError):
+            return None
+        if amount <= 0:
+            return None
+        return {
+            'date': row_date,
+            'amount': amount,
+            'category': str(row.get('category') or row.get('CATEGORY') or 'Other').strip() or 'Other',
+        }
 
     def format_dashboard_message(self, data: Dict[str, Any], period_label: str = "30 Hari") -> str:
         """Format dashboard data as Telegram message."""

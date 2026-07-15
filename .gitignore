@@ -20,6 +20,7 @@ creds.json
 
 # Logs & Junk
 *.log
+bot-state.pickle
 flake8_report.txt
 
 # Knowledge Base (Keep these)

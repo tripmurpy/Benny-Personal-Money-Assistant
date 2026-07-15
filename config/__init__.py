@@ -21,16 +21,12 @@ class Config:
     TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
     ADMIN_ID = os.getenv("ADMIN_CHAT_ID")
 
-    # Bot Security (Login)
-    BOT_USERNAME = os.getenv("BOT_USERNAME", "benny")
-    BOT_PASSWORD_HASH = os.getenv("BOT_PASSWORD_HASH")
-
     # AI Models
     GROQ_MODEL = "llama-3.1-8b-instant"
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")
     HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HUGGINGFACE_TOKEN")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
     # Supabase
     SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -98,6 +94,10 @@ class Config:
 
         if not cls.TELEGRAM_TOKEN:
             errors.append("TELEGRAM_BOT_TOKEN missing in .env")
+        if not cls.ADMIN_ID:
+            errors.append("ADMIN_CHAT_ID missing in .env")
+        elif not str(cls.ADMIN_ID).isdigit():
+            errors.append("ADMIN_CHAT_ID must be numeric")
         if not cls.GROQ_API_KEY:
             errors.append("GROQ_API_KEY missing in .env")
         if not cls.SUPABASE_URL:
