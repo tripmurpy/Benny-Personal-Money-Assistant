@@ -2,7 +2,7 @@
 title: Problem Bot Tele Keuangan
 status: active
 created: 2026-08-13
-updated: 2026-08-15
+updated: 2026-08-16
 tags:
   - personal-finance
   - telegram
@@ -260,6 +260,24 @@ Dokumen ini adalah log masalah kanonis. Masalah baru ditambahkan setelah ada buk
 **Hasil akhir:** Focused regression suite lulus. Smoke Groq ulang menghasilkan intent conversation dengan respons `Ceritakan lebih lanjut; aku bantu melihat sisi keuangannya.` Roast yang tidak memenuhi kontrak jatuh ke fallback faktual: total Rp75.000, Kopi tiga kali, dan satu tindakan konkret. Smoke memakai snapshot sintetis dan tidak membaca atau menulis ledger produksi.
 
 ## Aturan Verifikasi Masalah Berikutnya
+
+## OpenRouter API Key Ter-commit di History
+
+**Kata kunci:** secret scanning, OpenRouter, API key, credential leak, environment, Git history.
+
+**Klasifikasi:** security, configuration hygiene, critical.
+
+**Gejala:** GitHub mendeteksi fallback plaintext `OPENROUTER_API_KEY` pada `config/__init__.py`.
+
+**Bukti:** Checkout saat ini hanya membaca `OPENROUTER_API_KEY` dari environment, `.env` di-ignore dan tidak tracked, serta commit `92cafd2` dan `b09bede` masih memuat pola key tersebut di history.
+
+**Akar penyebab:** Credential pernah digunakan sebagai default literal pada konfigurasi dan ikut masuk ke commit.
+
+**Perbaikan:** Policy `AGENTS.md` sekarang melarang semua secret di source, dokumentasi, tests, screenshot, log, dan commit. Konfigurasi tetap memakai environment-only lookup dan regression test memastikan tidak ada fallback secret plaintext.
+
+**Tes regresi:** `python -m unittest tests.test_private_onboarding -v` memeriksa `OPENROUTER_API_KEY` tidak memiliki fallback literal; static scan checkout saat ini tidak menemukan prefix key atau private key.
+
+**Hasil akhir:** Working tree tidak lagi mengekspos key. Credential yang pernah ter-commit tetap harus di-rotate/revoke dan history perlu dibersihkan sebelum alert GitHub ditutup.
 
 1. Reproduksi input user dan catat output aktual.
 2. Trace jalur dari Telegram, intent, resolver, provider, sampai database.

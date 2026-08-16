@@ -32,8 +32,6 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Environment wajib: `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `GROQ_API_KEY`, `SUPABASE_URL`, dan `SUPABASE_SERVICE_ROLE_KEY` (server-only; `SUPABASE_KEY` hanya fallback). Provider OCR tambahan dibaca dari konfigurasi environment bila tersedia. Kebijakan request AI dapat diatur dengan `AI_TIMEOUT_SECONDS` (default 30) dan `AI_MAX_RETRIES` (default 1, maksimum 3).
-
 ## Gmail finance ingestion
 
 Agent Gmail membaca email transaksi dari sumber finance yang dikonfigurasi, mengambil
