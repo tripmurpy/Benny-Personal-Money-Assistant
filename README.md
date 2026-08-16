@@ -34,16 +34,35 @@ python main.py
 
 Environment wajib: `TELEGRAM_BOT_TOKEN`, `ADMIN_CHAT_ID`, `GROQ_API_KEY`, `SUPABASE_URL`, dan `SUPABASE_SERVICE_ROLE_KEY` (server-only; `SUPABASE_KEY` hanya fallback). Provider OCR tambahan dibaca dari konfigurasi environment bila tersedia. Kebijakan request AI dapat diatur dengan `AI_TIMEOUT_SECONDS` (default 30) dan `AI_MAX_RETRIES` (default 1, maksimum 3).
 
-Gmail finance aktif secara default dan hanya mengambil kandidat dari alamat resmi BCA,
-Jago, receipt GoPay/Gojek, dan Google Pay. Agent mengklasifikasikan setiap kandidat
-sebagai `expense`, `income`, atau `neither`; hanya dua kelas pertama yang masuk ledger.
-Setelah transaksi berhasil disimpan, bot mengirim notifikasi Telegram berisi jenis,
-transaksi, waktu, note bila ada, harga, dan lokasi.
-Pencarian mencakup email dua bulan terakhir, lalu Gmail message ID mencegah pemrosesan
-dan penyimpanan ulang.
-OAuth memakai `credintial.json` dan token lokal `gmail-token.json` (keduanya diabaikan
-Git). Sinkronisasi berjalan tiap 30 detik; atur lewat `GMAIL_POLL_SECONDS`, override
-sumber lewat `GMAIL_FINANCE_QUERY`, atau matikan dengan `GMAIL_ENABLED=false`.
+## Gmail finance ingestion
+
+Agent Gmail membaca email transaksi dari sumber finance yang dikonfigurasi, mengambil
+isi email dalam mode read-only, lalu meminta AI mengklasifikasikan email sebagai
+`expense`, `income`, atau `neither`. Email yang memenuhi bukti minimum ditulis langsung
+ke tabel ledger yang sesuai setelah klasifikasi; jalur ini tidak melewati confirmation
+flow Telegram. Setelah write terkonfirmasi, bot dapat mengirim ringkasan ke admin.
+
+Tools yang dipakai:
+
+- Gmail API dengan OAuth scope `gmail.readonly` untuk mencari dan mengambil email.
+- In-process job queue Telegram untuk polling berkala, minimal 30 detik.
+- AI service untuk klasifikasi dan ekstraksi field transaksi.
+- Supabase service untuk menulis expense ke `transactions` dan income ke `income`.
+- `gmail-state.json` untuk mencegah email yang sudah selesai diproses ulang.
+
+Dua contoh use case:
+
+1. Email pembayaran BCA yang berisi merchant, nominal IDR, dan tanggal transaksi diklasifikasikan sebagai `expense`, lalu ditulis ke `transactions`.
+2. Email penerimaan dana dari sumber eksternal yang berisi pengirim, nominal IDR, dan tanggal transaksi diklasifikasikan sebagai `income`, lalu ditulis ke `income`.
+
+![Alur Gmail finance ingestion](docs/visuals/gmail-finance-flow.svg)
+
+Baca [dokumentasi lengkap Gmail finance ingestion](docs/gmail-finance-ingestion.md),
+atau buka [source Mermaid](docs/visuals/gmail-finance-flow.mmd) bila diagram perlu diedit.
+
+Gmail aktif secara default. Atur `GMAIL_POLL_SECONDS`, override sumber lewat
+`GMAIL_FINANCE_QUERY`, atau matikan dengan `GMAIL_ENABLED=false`. OAuth memakai
+`credintial.json` dan token lokal `gmail-token.json`; keduanya diabaikan Git.
 
 ## Verifikasi
 
