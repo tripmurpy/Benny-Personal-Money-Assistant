@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1240" viewBox="0 0 1700 1240" role="img" aria-labelledby="title desc">
+  <title id="title">Benny Gmail finance ingestion flow</title>
+  <desc id="desc">Runtime flow from configuration validation and read-only Gmail OAuth through bounded polling, raw email parsing, AI classification, separate expense or income Supabase writers, idempotent operation IDs, local state, Telegram notification, and failure retry boundaries.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#536779"/>
+    </marker>
+    <marker id="dashed-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b84a4a"/>
+    </marker>
+    <style>
+      .title { font: 600 30px Arial, sans-serif; fill: #102a43; }
+      .section { font: 600 19px Arial, sans-serif; fill: #233b53; }
+      .label { font: 600 15px Arial, sans-serif; fill: #102a43; }
+      .body { font: 14px Arial, sans-serif; fill: #243b53; }
+      .small { font: 13px Arial, sans-serif; fill: #486581; }
+      .box { stroke-width: 2; rx: 12; }
+      .startup { fill: #e8f0fe; stroke: #3569a8; }
+      .access { fill: #e7f6f2; stroke: #21866f; }
+      .poll { fill: #eef2f7; stroke: #60758b; }
+      .ai { fill: #f4edff; stroke: #7b5bb6; }
+      .branch { fill: #fff4d6; stroke: #b7791f; }
+      .data { fill: #e8f5e9; stroke: #388e3c; }
+      .failure { fill: #fdecec; stroke: #c94c4c; }
+      .boundary { fill: none; stroke: #9fb3c8; stroke-width: 2; stroke-dasharray: 8 6; rx: 18; }
+      .failure-boundary { fill: none; stroke: #d98989; stroke-width: 2; stroke-dasharray: 8 6; rx: 18; }
+      .flow { fill: none; stroke: #536779; stroke-width: 2.4; marker-end: url(#arrow); }
+      .fail-flow { fill: none; stroke: #b84a4a; stroke-width: 2.2; stroke-dasharray: 7 5; marker-end: url(#dashed-arrow); }
+      .tag { font: 600 12px Arial, sans-serif; fill: #486581; }
+      .tag-fail { font: 600 12px Arial, sans-serif; fill: #9b2c2c; }
+    </style>
+  </defs>
+
+  <rect width="1700" height="1240" fill="#ffffff"/>
+  <text x="50" y="50" class="title">Benny Gmail finance ingestion</text>
+  <text x="50" y="77" class="small">Verified runtime path: main.py → services/gmail/ingestion.py → AIService → SupabaseService</text>
+
+  <rect x="35" y="105" width="1630" height="170" class="boundary"/>
+  <text x="55" y="132" class="section">Startup / composition root</text>
+
+  <rect x="55" y="155" width="205" height="78" class="box startup"/>
+  <text x="157" y="180" text-anchor="middle" class="label">main.py</text>
+  <text x="157" y="201" text-anchor="middle" class="body">Config.validate()</text>
+  <text x="157" y="220" text-anchor="middle" class="small">required env values</text>
+
+  <rect x="305" y="155" width="150" height="78" class="box branch"/>
+  <text x="380" y="181" text-anchor="middle" class="label">Config valid?</text>
+  <text x="380" y="207" text-anchor="middle" class="body">yes / no</text>
+
+  <rect x="500" y="155" width="230" height="78" class="box startup"/>
+  <text x="615" y="179" text-anchor="middle" class="label">Telegram application</text>
+  <text x="615" y="200" text-anchor="middle" class="body">PicklePersistence</text>
+  <text x="615" y="219" text-anchor="middle" class="small">bot-state.pickle</text>
+
+  <rect x="775" y="155" width="155" height="78" class="box branch"/>
+  <text x="852" y="181" text-anchor="middle" class="label">GMAIL_ENABLED?</text>
+  <text x="852" y="207" text-anchor="middle" class="body">yes / no</text>
+
+  <rect x="975" y="155" width="315" height="78" class="box access"/>
+  <text x="1132" y="179" text-anchor="middle" class="label">Gmail OAuth / API client</text>
+  <text x="1132" y="200" text-anchor="middle" class="body">scope: gmail.readonly</text>
+  <text x="1132" y="219" text-anchor="middle" class="small">refresh or local browser OAuth</text>
+
+  <rect x="1335" y="155" width="285" height="78" class="box startup"/>
+  <text x="1477" y="179" text-anchor="middle" class="label">Application job_queue</text>
+  <text x="1477" y="200" text-anchor="middle" class="body">run_repeating(gmail.sync)</text>
+  <text x="1477" y="219" text-anchor="middle" class="small">interval ≥ 30 seconds</text>
+
+  <path d="M260 194 H305" class="flow"/>
+  <path d="M455 194 H500" class="flow"/>
+  <path d="M730 194 H775" class="flow"/>
+  <path d="M930 194 H975" class="flow"/>
+  <path d="M1290 194 H1335" class="flow"/>
+  <text x="468" y="185" class="tag">yes</text>
+  <text x="742" y="185" class="tag">yes</text>
+  <text x="941" y="185" class="tag">yes</text>
+  <text x="320" y="246" class="tag-fail">no → log + SystemExit(1)</text>
+  <text x="790" y="246" class="tag">no → Telegram polling only</text>
+
+  <rect x="35" y="310" width="1630" height="260" class="boundary"/>
+  <text x="55" y="337" class="section">One scheduled Gmail poll</text>
+
+  <rect x="55" y="365" width="170" height="100" class="box poll"/>
+  <text x="140" y="391" text-anchor="middle" class="label">gmail.sync()</text>
+  <text x="140" y="414" text-anchor="middle" class="body">poll cycle</text>
+  <text x="140" y="437" text-anchor="middle" class="small">context carries bot</text>
+
+  <rect x="270" y="365" width="180" height="100" class="box poll"/>
+  <text x="360" y="391" text-anchor="middle" class="label">_fetch()</text>
+  <text x="360" y="414" text-anchor="middle" class="body">worker thread</text>
+  <text x="360" y="437" text-anchor="middle" class="small">sync stays async-safe</text>
+
+  <rect x="495" y="365" width="260" height="100" class="box poll"/>
+  <text x="625" y="389" text-anchor="middle" class="label">Bounded Gmail query</text>
+  <text x="625" y="412" text-anchor="middle" class="body">GMAIL_FINANCE_QUERY</text>
+  <text x="625" y="434" text-anchor="middle" class="small">users.messages.list · maxResults=2</text>
+
+  <rect x="800" y="365" width="220" height="100" class="box poll"/>
+  <text x="910" y="389" text-anchor="middle" class="label">Local state filter</text>
+  <text x="910" y="412" text-anchor="middle" class="body">gmail-state.json</text>
+  <text x="910" y="434" text-anchor="middle" class="small">missing / expense / income</text>
+
+  <rect x="1065" y="365" width="265" height="100" class="box poll"/>
+  <text x="1197" y="389" text-anchor="middle" class="label">Message fetch</text>
+  <text x="1197" y="412" text-anchor="middle" class="body">users.messages.get</text>
+  <text x="1197" y="434" text-anchor="middle" class="small">format=raw</text>
+
+  <rect x="1375" y="365" width="245" height="100" class="box poll"/>
+  <text x="1497" y="389" text-anchor="middle" class="label">Parse raw email</text>
+  <text x="1497" y="412" text-anchor="middle" class="body">plain body first</text>
+  <text x="1497" y="434" text-anchor="middle" class="small">HTML fallback → normalized text</text>
+
+  <path d="M140 275 V365" class="flow"/>
+  <path d="M225 415 H270" class="flow"/>
+  <path d="M450 415 H495" class="flow"/>
+  <path d="M755 415 H800" class="flow"/>
+  <path d="M1020 415 H1065" class="flow"/>
+  <path d="M1330 415 H1375" class="flow"/>
+  <path d="M1132 233 V290 H360 V365" class="flow"/>
+  <text x="1310" y="350" class="tag">state checked before raw fetch</text>
+
+  <rect x="35" y="605" width="590" height="270" class="boundary"/>
+  <text x="55" y="632" class="section">AI classification boundary</text>
+  <rect x="55" y="660" width="245" height="110" class="box ai"/>
+  <text x="177" y="686" text-anchor="middle" class="label">AIService</text>
+  <text x="177" y="708" text-anchor="middle" class="body">parse_finance_email()</text>
+  <text x="177" y="731" text-anchor="middle" class="small">Groq JSON; email is untrusted data</text>
+  <rect x="350" y="660" width="235" height="110" class="box branch"/>
+  <text x="467" y="686" text-anchor="middle" class="label">transaction_type</text>
+  <text x="467" y="711" text-anchor="middle" class="body">expense · income</text>
+  <text x="467" y="734" text-anchor="middle" class="body">neither</text>
+  <path d="M1497 465 V570 H177 V660" class="flow"/>
+  <path d="M300 715 H350" class="flow"/>
+
+  <rect x="680" y="605" width="985" height="270" class="boundary"/>
+  <text x="700" y="632" class="section">Ledger write boundary</text>
+  <rect x="700" y="660" width="200" height="110" class="box data"/>
+  <text x="800" y="686" text-anchor="middle" class="label">Owner profile</text>
+  <text x="800" y="708" text-anchor="middle" class="body">upsert_user()</text>
+  <text x="800" y="731" text-anchor="middle" class="small">uid = Config.ADMIN_ID</text>
+  <rect x="950" y="660" width="240" height="110" class="box data"/>
+  <text x="1070" y="686" text-anchor="middle" class="label">Idempotency key</text>
+  <text x="1070" y="711" text-anchor="middle" class="body">gmail:&lt;message_id&gt;</text>
+  <text x="1070" y="734" text-anchor="middle" class="small">database row adds :0</text>
+  <rect x="1240" y="650" width="190" height="130" class="box data"/>
+  <text x="1335" y="676" text-anchor="middle" class="label">Expense writer</text>
+  <text x="1335" y="700" text-anchor="middle" class="body">add_transactions_bulk()</text>
+  <text x="1335" y="724" text-anchor="middle" class="small">table: transactions</text>
+  <rect x="1470" y="650" width="170" height="130" class="box data"/>
+  <text x="1555" y="676" text-anchor="middle" class="label">Income writer</text>
+  <text x="1555" y="700" text-anchor="middle" class="body">add_income()</text>
+  <text x="1555" y="724" text-anchor="middle" class="small">table: income</text>
+  <path d="M585 700 H700" class="flow"/>
+  <path d="M900 715 H950" class="flow"/>
+  <path d="M1190 700 H1240" class="flow"/>
+  <path d="M1190 740 H1470" class="flow"/>
+  <text x="1198" y="692" class="tag">expense</text>
+  <text x="1198" y="758" class="tag">income</text>
+
+  <rect x="35" y="925" width="590" height="245" class="boundary"/>
+  <text x="55" y="952" class="section">neither branch</text>
+  <rect x="55" y="980" width="250" height="100" class="box branch"/>
+  <text x="180" y="1006" text-anchor="middle" class="label">No ledger write</text>
+  <text x="180" y="1030" text-anchor="middle" class="body">mark status: neither</text>
+  <text x="180" y="1052" text-anchor="middle" class="small">prevents reprocessing</text>
+  <path d="M467 770 V885 H180 V980" class="flow"/>
+
+  <rect x="680" y="925" width="985" height="245" class="boundary"/>
+  <text x="700" y="952" class="section">Post-write notification and local state</text>
+  <rect x="700" y="980" width="205" height="100" class="box branch"/>
+  <text x="802" y="1006" text-anchor="middle" class="label">result.ok?</text>
+  <text x="802" y="1030" text-anchor="middle" class="body">confirmed row count</text>
+  <rect x="945" y="980" width="225" height="100" class="box data"/>
+  <text x="1057" y="1006" text-anchor="middle" class="label">Telegram notification</text>
+  <text x="1057" y="1030" text-anchor="middle" class="body">if _context.bot exists</text>
+  <text x="1057" y="1052" text-anchor="middle" class="small">chat_id = ADMIN_ID</text>
+  <rect x="1210" y="980" width="205" height="100" class="box data"/>
+  <text x="1312" y="1006" text-anchor="middle" class="label">State: notified</text>
+  <text x="1312" y="1030" text-anchor="middle" class="body">expense:notified</text>
+  <text x="1312" y="1052" text-anchor="middle" class="small">or income:notified</text>
+  <rect x="1455" y="980" width="185" height="100" class="box data"/>
+  <text x="1547" y="1006" text-anchor="middle" class="label">State: saved</text>
+  <text x="1547" y="1030" text-anchor="middle" class="body">expense / income</text>
+  <text x="1547" y="1052" text-anchor="middle" class="small">no bot in context</text>
+  <path d="M1340 780 V900 H802 V980" class="flow"/>
+  <path d="M905 1030 H945" class="flow"/>
+  <path d="M1170 1030 H1210" class="flow"/>
+  <path d="M1170 1060 H1455" class="flow"/>
+
+  <rect x="35" y="1195" width="1630" height="1" fill="#d9e2ec"/>
+  <text x="50" y="1225" class="small">Failure boundary: AI retries only timeout/rate-limit; final classification failure skips the current email. Fetch/write/notify errors are logged and leave local state unmarked, so the next scheduled poll can revisit the message; operation_id makes a repeated DB upsert idempotent.</text>
+</svg>

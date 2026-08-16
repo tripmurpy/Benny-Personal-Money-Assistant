@@ -1,0 +1,114 @@
+%% Gmail finance ingestion: verified runtime flow from main.py and services/gmail/ingestion.py
+flowchart LR
+    subgraph STARTUP["Startup / composition root"]
+        CFG["main.py<br/>Config.validate()"]
+        CFGOK{"Config valid?"}
+        APP["Build Telegram application<br/>PicklePersistence: bot-state.pickle"]
+        ENABLED{"GMAIL_ENABLED?"}
+        JOB["Application job_queue<br/>run_repeating(gmail.sync)<br/>interval = max(30, GMAIL_POLL_SECONDS)"]
+        OFF["Telegram polling only"]
+        CFG --> CFGOK
+        CFGOK -->|"no"| CFGFAIL["Log configuration error<br/>SystemExit(1)"]
+        CFGOK -->|"yes"| APP --> ENABLED
+        ENABLED -->|"no"| OFF
+    end
+
+    subgraph AUTH["Gmail access"]
+        OAUTH["GmailTransactionIngestion._service()<br/>OAuth scope: gmail.readonly<br/>refresh token or local browser OAuth"]
+        GAPI["Gmail API v1 client<br/>credentials cached in gmail-token.json"]
+        OAUTH --> GAPI
+    end
+
+    ENABLED -->|"yes"| OAUTH --> JOB
+
+    subgraph POLL["One scheduled Gmail poll"]
+        SYNC["gmail.sync(_context)"]
+        FETCH["_fetch() in worker thread"]
+        QUERY["users.messages.list<br/>userId=me<br/>q = GMAIL_FINANCE_QUERY<br/>maxResults = 2"]
+        FILTER["Filter local state<br/>process only missing, expense, or income IDs"]
+        RAW["users.messages.get<br/>format = raw"]
+        PARSE["BytesParser + _HTMLText<br/>plain body first; HTML fallback<br/>subject, sender, date_header, body"]
+        STATE["gmail-state.json<br/>load at init; write status after handling"]
+        SYNC --> FETCH --> QUERY --> FILTER --> RAW --> PARSE
+        STATE -.-> FILTER
+    end
+
+    JOB --> SYNC
+    GAPI --> FETCH
+
+    subgraph CLASSIFY["AI classification boundary"]
+        AI["AIService.parse_finance_email()<br/>Groq JSON; email treated as untrusted data"]
+        KIND{"transaction_type"}
+        EXP["expense<br/>completed purchase / bill / fee"]
+        INC["income<br/>external money received"]
+        NEITHER["neither<br/>promo, OTP, failed, ambiguous,<br/>internal transfer, or incomplete evidence"]
+        AI --> KIND
+        KIND -->|"expense"| EXP
+        KIND -->|"income"| INC
+        KIND -->|"neither"| NEITHER
+    end
+
+    PARSE --> AI
+
+    subgraph LEDGER["Ledger write boundary"]
+        OWNER["Ensure owner profile<br/>SupabaseService.upsert_user<br/>uid = Config.ADMIN_ID"]
+        OPID["operation_id = gmail:<message_id>"]
+        WRITER{"Class"}
+        EXPENSEDB["Expense writer<br/>add_transactions_bulk()<br/>Supabase: transactions"]
+        INCOMEDB["Income writer<br/>add_income()<br/>Supabase: income"]
+        RESULT{"result.ok?"}
+        EXP --> OWNER
+        INC --> OWNER
+        OWNER --> OPID --> WRITER
+        WRITER -->|"expense"| EXPENSEDB --> RESULT
+        WRITER -->|"income"| INCOMEDB --> RESULT
+    end
+
+    NEITHER --> MARKNEITHER["Mark local state: neither<br/>No ledger write"]
+    MARKNEITHER --> STATE
+
+    subgraph AFTERWRITE["Post-write notification and local state"]
+        BOT{"_context.bot available?"}
+        TG["Telegram notification<br/>chat_id = Config.ADMIN_ID"]
+        MARKNOTIFY["gmail-state.json<br/>expense:notified / income:notified"]
+        MARKSAVED["gmail-state.json<br/>expense / income"]
+        RESULT -->|"yes"| BOT
+        BOT -->|"yes"| TG --> MARKNOTIFY
+        BOT -->|"no"| MARKSAVED
+    end
+
+    MARKNOTIFY --> STATE
+    MARKSAVED --> STATE
+
+    subgraph FAILURE["Failure / retry boundary"]
+        AIRETRY["AI _request(): retry only timeout/rate-limit<br/>up to AI_MAX_RETRIES; delay from provider headers"]
+        AISKIP["Final classification error<br/>log + skip current email<br/>next scheduled poll may see it again"]
+        POLLFAIL["_fetch or outer sync error<br/>log cycle failure; no local state mark"]
+        WRITEFAIL["Database not confirmed or profile unavailable<br/>no notification; no local state mark"]
+        NOTIFYFAIL["Notification/state error<br/>outer sync logs; idempotent DB key protects re-write"]
+        AI -.-> AIRETRY -.-> AISKIP
+        FETCH -.-> POLLFAIL
+        RESULT -->|"no"| WRITEFAIL
+        TG -.-> NOTIFYFAIL
+    end
+
+    AISKIP -.-> SYNC
+    POLLFAIL -.-> SYNC
+    WRITEFAIL -.-> SYNC
+    NOTIFYFAIL -.-> SYNC
+
+    classDef bootstrap fill:#e8f0fe,stroke:#3569a8,color:#102a43
+    classDef access fill:#e7f6f2,stroke:#21866f,color:#123c35
+    classDef poll fill:#eef2f7,stroke:#60758b,color:#172b3a
+    classDef ai fill:#f4edff,stroke:#7b5bb6,color:#2d1d4f
+    classDef branch fill:#fff4d6,stroke:#b7791f,color:#4a2d08
+    classDef data fill:#e8f5e9,stroke:#388e3c,color:#1b3a1e
+    classDef failure fill:#fdecec,stroke:#c94c4c,color:#5b1717
+
+    class CFG,CFGOK,APP,ENABLED,JOB,OFF,CFGFAIL bootstrap
+    class OAUTH,GAPI access
+    class SYNC,FETCH,QUERY,FILTER,RAW,PARSE,STATE poll
+    class AI,KIND,AIRETRY,AISKIP ai
+    class EXP,INC,NEITHER,WRITER,BOT,RESULT branch
+    class OWNER,OPID,EXPENSEDB,INCOMEDB,TG,MARKNEITHER,MARKNOTIFY,MARKSAVED data
+    class POLLFAIL,WRITEFAIL,NOTIFYFAIL failure
