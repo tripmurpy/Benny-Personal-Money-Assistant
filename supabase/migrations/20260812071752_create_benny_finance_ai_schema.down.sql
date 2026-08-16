@@ -1,0 +1,10 @@
+drop table if exists public.roast_runs;
+drop table if exists public.spending_assessments;
+drop table if exists public.user_preferences;
+drop table if exists public.agent_harness;
+drop table if exists public.chat_messages;
+drop table if exists public.chat_sessions;
+drop table if exists public.income;
+drop table if exists public.transactions;
+drop table if exists public.user_profiles;
+drop function if exists public.set_updated_at();

@@ -1,7 +1,11 @@
+import importlib
+import os
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from services.supabase_service import SupabaseService
+import config
+from services.infrastructure.database import SupabaseService
 
 
 class FakeQuery:
@@ -93,6 +97,30 @@ class LedgerIntegrityTest(unittest.TestCase):
         record = self.service([{"id": 5}])
         self.assertEqual(record.get_record("7", "transactions", "5")["id"], 5)
         self.assertEqual(record._client.query.filters, [("user_id", "7"), ("id", "5")])
+
+    def test_updates_only_write_allowed_financial_fields(self):
+        transaction = self.service([{"id": 5}])
+        self.assertTrue(
+            transaction.update_transaction(
+                "7",
+                "5",
+                {"item": "Teh", "amount": "30000", "user_id": "8", "id": 99},
+            )
+        )
+        self.assertEqual(
+            transaction._client.query.payload,
+            {"item_name": "Teh", "amount": 30_000},
+        )
+
+    def test_server_service_role_key_takes_precedence(self):
+        try:
+            with patch.dict(os.environ, {
+                "SUPABASE_KEY": "publishable-key",
+                "SUPABASE_SERVICE_ROLE_KEY": "service-role-key",
+            }):
+                self.assertEqual(importlib.reload(config).Config.SUPABASE_KEY, "service-role-key")
+        finally:
+            importlib.reload(config)
 
 
 if __name__ == "__main__":

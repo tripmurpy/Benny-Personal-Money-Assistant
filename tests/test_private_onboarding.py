@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from config import Config
-from services import auth_service
-from services.telegram_service import TelegramService
+from services.telegram import auth as auth_service
+from services.telegram.bot import TelegramService
 
 
 class DummyMessage:
@@ -38,7 +38,7 @@ class PrivateOnboardingTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self):
         Config.ADMIN_ID = self.original_admin_id
 
-    async def test_start_whitelist_and_exact_main_menu(self):
+    async def test_start_whitelist_and_capture_only_welcome(self):
         service = TelegramService.__new__(TelegramService)
         allowed = make_update(12345)
         denied = make_update(99999)
@@ -50,22 +50,70 @@ class PrivateOnboardingTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(auth_service.is_allowed(99999))
         self.assertEqual(len(allowed.message.replies), 1)
         self.assertEqual(denied.message.replies, [])
-        keyboard = allowed.message.replies[0][1]["reply_markup"].keyboard
-        self.assertEqual(
-            [button.text for row in keyboard for button in row],
-            ["Ringkasan", "Riwayat", "Budget", "Goals"],
-        )
+        self.assertNotIn("reply_markup", allowed.message.replies[0][1])
+        self.assertIn("pemasukan", allowed.message.replies[0][0].lower())
+        self.assertIn("pengeluaran", allowed.message.replies[0][0].lower())
 
-    async def test_allowed_message_needs_no_chat_login(self):
+    async def test_allowed_message_routes_only_to_capture_controller(self):
         service = TelegramService.__new__(TelegramService)
         service.db = Mock()
-        service.handle_summary = AsyncMock()
-        update = make_update(12345, "Ringkasan")
+        service.capture = SimpleNamespace(handle=AsyncMock())
+        service.reports = SimpleNamespace(try_handle=AsyncMock(return_value=False))
+        update = make_update(12345, "makan 25 ribu")
+        context = SimpleNamespace()
+
+        await service.handle_message(update, context)
+
+        service.db.upsert_user.assert_called_once()
+        service.reports.try_handle.assert_awaited_once_with(update)
+        service.capture.handle.assert_awaited_once_with(update, context)
+
+    async def test_memory_command_routes_before_report_and_capture(self):
+        service = TelegramService.__new__(TelegramService)
+        service.db = Mock()
+        service.memory = SimpleNamespace(handle_command=Mock(return_value="Sudah kuingat"))
+        service.capture = SimpleNamespace(handle=AsyncMock())
+        service.reports = SimpleNamespace(try_handle=AsyncMock(return_value=False))
+        update = make_update(12345, "ingat aku suka teh")
 
         await service.handle_message(update, SimpleNamespace())
 
-        service.db.upsert_user.assert_called_once()
-        service.handle_summary.assert_awaited_once()
+        self.assertEqual(update.message.replies[0][0], "Sudah kuingat")
+        service.reports.try_handle.assert_not_awaited()
+        service.capture.handle.assert_not_awaited()
+
+    async def test_plain_roast_routes_before_report_sql_and_capture(self):
+        service = TelegramService.__new__(TelegramService)
+        service.db = Mock()
+        service.memory = SimpleNamespace(handle_command=Mock(return_value=None))
+        service.roasts = SimpleNamespace(try_handle=AsyncMock(return_value=True))
+        service.reports = SimpleNamespace(try_handle=AsyncMock(return_value=False))
+        service.sql_assistant = SimpleNamespace(try_handle=AsyncMock(return_value=False))
+        service.capture = SimpleNamespace(handle=AsyncMock())
+        update = make_update(12345, "roast pengeluaran aku")
+
+        await service.handle_message(update, SimpleNamespace())
+
+        service.roasts.try_handle.assert_awaited_once_with(update)
+        service.reports.try_handle.assert_not_awaited()
+        service.sql_assistant.try_handle.assert_not_awaited()
+        service.capture.handle.assert_not_awaited()
+
+    async def test_help_lists_only_active_features(self):
+        service = TelegramService.__new__(TelegramService)
+        allowed = make_update(12345)
+        denied = make_update(99999)
+
+        await service.help(allowed, SimpleNamespace())
+        await service.help(denied, SimpleNamespace())
+
+        text = allowed.message.replies[0][0].lower()
+        self.assertIn("/roast", text)
+        self.assertIn("foto struk", text)
+        self.assertIn("ingat", text)
+        self.assertNotIn("budget", text)
+        self.assertNotIn("reminder", text)
+        self.assertEqual(denied.message.replies, [])
 
     def test_tracked_config_has_no_chat_credentials_or_secret_fallback(self):
         source = (Path(__file__).parents[1] / "config" / "__init__.py").read_text(encoding="utf-8")

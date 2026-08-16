@@ -6,16 +6,15 @@ __pycache__/
 env/
 venv/
 .env
-
-
-admin_tools
 .claude
-docs
 
 
 # Secrets
 finance.db
 creds.json
+credintial.json
+gmail-token.json
+gmail-state.json
 .vscode/
 
 # Logs & Junk
@@ -23,9 +22,4 @@ creds.json
 bot-state.pickle
 flake8_report.txt
 
-# Knowledge Base (Keep these)
-!admin_tools/Do/*.txt
-!admin_tools/Do/*.md
-!admin_tools/Do/*.pdf
-!admin_tools/Do/*.docx
-!admin_tools/Do/*.html
+scratch/
